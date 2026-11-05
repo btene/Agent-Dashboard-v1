@@ -218,7 +218,7 @@ export function createIntelApi({ store, bus, settingsService, sourceService, ema
     if (!p) throw err(404, 'Project not found');
     const patch = { updatedAt: now() };
     // Facts a person enters are labelled "Entered by your team", never as verified government data.
-    for (const f of ['applicant', 'propertyOwner', 'generalContractor', 'landscapeScopeDocumented', 'bidDeadline', 'schedule', 'projectName']) {
+    for (const f of ['applicant', 'propertyOwner', 'generalContractor', 'propertyManager', 'constructionManager', 'architect', 'landscapeScopeDocumented', 'bidDeadline', 'schedule', 'projectName']) {
       if (req.body[f] !== undefined) { patch[f] = req.body[f] || null; patch.provenance = { ...(patch.provenance || p.provenance), [f]: req.body[f] ? 'user' : 'unverified' }; }
     }
     if (req.body.projectName !== undefined) { patch.displayName = req.body.projectName || p.displayName; patch.userNamed = Boolean(req.body.projectName); }

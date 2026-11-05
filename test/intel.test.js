@@ -279,3 +279,24 @@ test('onboarding tracks steps, allows skipping optional ones only, and dashboard
   assert.ok(dash.map.length >= 1);
   assert.equal(dash.metrics.find((m) => m.key === 'decision_makers').value, 1);
 });
+
+test('ConstructConnect-style export columns are recognised automatically', async () => {
+  const csv = 'Project Name,Project ID,Address,City,County,Project Status,Sub Bid Date,Owner,General Contractor,Architect,Building Use,Estimated Cost,Project Detail Page\n"Harbor Point Hotel",CC-9001,"200 Harbor Blvd",Ventura,Ventura,Bidding,2027-02-10,"Harbor Point Hospitality LLC","Coastline Builders","Studio A Architects","Hotel / Motel",28000000,https://app.constructconnect.com/projects/9001\n';
+  const res = await fetch(`${base}/imports?sourceId=constructconnect&filename=cc-detailed.csv`, { method: 'POST', headers: { 'content-type': 'text/csv' }, body: csv });
+  const preview = await res.json();
+  assert.equal(preview.mapping.permitNumber, 'Project ID');
+  assert.equal(preview.mapping.projectName, 'Project Name');
+  assert.equal(preview.mapping.generalContractor, 'General Contractor');
+  assert.equal(preview.mapping.propertyOwner, 'Owner');
+  assert.equal(preview.mapping.architect, 'Architect');
+  assert.equal(preview.mapping.bidDeadline, 'Sub Bid Date');
+  assert.equal(preview.mapping.sourceRecordUrl, 'Project Detail Page');
+  assert.equal(preview.mapping.valuation, 'Estimated Cost');
+  const commit = (await call(`/imports/${preview.id}/commit`, { method: 'POST', body: {} })).body;
+  assert.equal(commit.created, 1);
+  const p = (await call('/projects?q=Harbor%20Point')).body.items[0];
+  assert.equal(p.architect, 'Studio A Architects');
+  assert.equal(p.provenance.propertyOwner, 'third_party');
+  assert.equal(p.classification.projectType, 'hospitality');
+  assert.equal(p.confirmations.company.status, 'confirmed');
+});

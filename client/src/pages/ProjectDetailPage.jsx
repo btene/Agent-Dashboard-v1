@@ -33,7 +33,7 @@ function ContactForm({ projectId, onDone, roles }) {
 }
 
 function EditFacts({ project, onDone }) {
-  const [f, setF] = useState({ projectName: project.projectName || '', applicant: project.applicant || '', propertyOwner: project.propertyOwner || '', generalContractor: project.generalContractor || '', landscapeScopeDocumented: project.landscapeScopeDocumented || '', bidDeadline: project.bidDeadline?.slice(0, 10) || '', bidAmount: project.bidAmount ?? '', contractValue: project.contractValue ?? '', note: '' });
+  const [f, setF] = useState({ projectName: project.projectName || '', applicant: project.applicant || '', propertyOwner: project.propertyOwner || '', generalContractor: project.generalContractor || '', propertyManager: project.propertyManager || '', constructionManager: project.constructionManager || '', architect: project.architect || '', landscapeScopeDocumented: project.landscapeScopeDocumented || '', bidDeadline: project.bidDeadline?.slice(0, 10) || '', bidAmount: project.bidAmount ?? '', contractValue: project.contractValue ?? '', note: '' });
   const [error, setError] = useState(null);
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   async function save() {
@@ -49,6 +49,8 @@ function EditFacts({ project, onDone }) {
         <label className="field">Project name (as the developer calls it)<input value={f.projectName} onChange={set('projectName')} /></label>
         <div className="form-row"><label className="field">Applicant / developer<input value={f.applicant} onChange={set('applicant')} /></label><label className="field">Property owner<input value={f.propertyOwner} onChange={set('propertyOwner')} /></label></div>
         <div className="form-row"><label className="field">General contractor<input value={f.generalContractor} onChange={set('generalContractor')} /></label><label className="field">Bid deadline<input type="date" value={f.bidDeadline} onChange={set('bidDeadline')} /></label></div>
+        <div className="form-row"><label className="field">Construction manager<input value={f.constructionManager} onChange={set('constructionManager')} /></label><label className="field">Property manager (for maintenance)<input value={f.propertyManager} onChange={set('propertyManager')} /></label></div>
+        <label className="field">Architect / landscape architect<input value={f.architect} onChange={set('architect')} /></label>
         <label className="field">Documented landscape scope<input value={f.landscapeScopeDocumented} onChange={set('landscapeScopeDocumented')} placeholder="e.g. L-series landscape sheets in the plan set; 2.1 acres of planting and irrigation" /></label>
         <div className="form-row"><label className="field">Your bid amount ($)<input type="number" value={f.bidAmount} onChange={set('bidAmount')} /></label><label className="field">Contract value if awarded ($)<input type="number" value={f.contractValue} onChange={set('contractValue')} /></label></div>
         <label className="field">Note<textarea value={f.note} onChange={set('note')} /></label>
@@ -162,6 +164,9 @@ export default function ProjectDetailPage() {
               <Fact label="Developer / applicant" value={p.applicant} provenance={p.provenance.applicant} />
               <Fact label="Property owner" value={p.propertyOwner} provenance={p.provenance.propertyOwner} />
               <Fact label="General contractor" value={p.generalContractor} provenance={p.provenance.generalContractor} />
+              <Fact label="Construction manager" value={p.constructionManager} provenance={p.provenance.constructionManager} />
+              <Fact label="Property manager" value={p.propertyManager} provenance={p.provenance.propertyManager} />
+              <Fact label="Architect" value={p.architect} provenance={p.provenance.architect} />
               <Fact label="Bid deadline" value={p.bidDeadline} format={day} provenance={p.provenance.bidDeadline} />
               <Fact label="Construction schedule" value={p.schedule} provenance={p.provenance.schedule} />
               <Fact label="Landscaping scope (documented)" value={p.landscapeScopeDocumented} provenance={p.provenance.landscapeScopeDocumented} />

@@ -17,6 +17,33 @@ A commercial construction intelligence, lead-generation, outreach-automation and
 | **Documents** | Encrypted document library with text extraction, human review, expiration warnings, outreach approval and role-based access. |
 | **Settings** | Company, territory, scoring, outreach, SMTP email account, live/demo environment switch. |
 
+## Decision-maker research (company & contact intelligence)
+
+Every project and company page has **Find decision-makers**. It starts from the companies the
+record names (developer/applicant, general contractor, owner, construction manager, property
+manager), uses the title priorities for the opportunity type (landscape construction vs recurring
+maintenance), and:
+
+* queries the contact-data providers you have enabled under *Settings → Contact research
+  providers* (Apollo.io, Hunter.io, People Data Labs; ZoomInfo is configuration-only because its API
+  is enterprise-licensed);
+* scores each candidate out of 100 (responsibility relevance 35, project connection 30, authority
+  20, verified contact availability 15) with a written reason and the source for every component;
+* gives one-click LinkedIn and Google search links for manual research (no scraping, no automated
+  messaging, no login automation);
+* checks the CRM for existing relationships and flags *Existing relationship / Already contacted /
+  Known in CRM* so cold outreach is not sent to people you already know;
+* saves verified candidates to the CRM with LinkedIn URL, verified business email, phone, original
+  sources, last verification date, contact score and project links, deduplicated by email and
+  name+company.
+
+Replies are tracked by reading the connected mailbox over IMAP (`Reply tracking` automation) and
+matched to sent emails by Message-ID, so replies update the email, project stage, contact and
+reminders automatically.
+
+Deployment instructions for a permanent URL are in `docs/DEPLOYMENT.md`; service costs and
+credentials in `docs/COSTS.md`; ten real leads with sources in `docs/SAMPLE_LEADS.md`.
+
 ## No fabricated projects
 
 * Projects enter the system only from a connector (official API) or a permitted file import. Fields the source did not publish are stored as `null` and shown as **“Not yet verified”**.
