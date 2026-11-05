@@ -38,6 +38,28 @@ export const LANDSCAPE_TERMS = [
   ['green roof', 'green roof mentioned'], ['streetscape', 'streetscape mentioned'], ['parking lot', 'parking lot (typically requires landscape islands/screening)'],
 ];
 
+// Work that almost never involves exterior landscape: interior tenant
+// improvements, equipment, roofing, signage, seismic, utilities.
+export const NON_LANDSCAPE_WORK = [
+  [/\b(tenant improvement|\bT\.?I\.?\b|interior (remodel|improvement|alteration|renovation|build[- ]?out)|office remodel|interior only)/i, 'interior tenant improvement'],
+  [/\b(re-?roof|roofing|roof replacement|roof repair)\b/i, 'roofing'],
+  [/\b(seismic|retrofit|soft[- ]story)\b/i, 'seismic retrofit'],
+  [/\b(sign|signage|monument sign|wall sign)\b/i, 'signage'],
+  [/\b(fire sprinkler|fire alarm|sprinkler system|NFPA)\b/i, 'fire protection'],
+  [/\b(elevator|escalator)\b/i, 'elevator'],
+  [/\b(HVAC|mechanical unit|rooftop unit|boiler|chiller)\b/i, 'mechanical equipment'],
+  [/\b(solar|photovoltaic|PV system|battery storage|ESS)\b/i, 'solar / energy'],
+  [/\b(EV charg|electric vehicle)\b/i, 'EV charging'],
+  [/\b(cell site|antenna|telecom|wireless facility)\b/i, 'telecom'],
+  [/\b(change of (use|occupancy)|occupancy change)\b/i, 'change of use'],
+  [/\b(demolition|demo of|demolish)\b/i, 'demolition'],
+  [/\b(ADA|accessibility|restroom|bathroom)\b/i, 'accessibility / restroom'],
+  [/\b(window|storefront|facade|exterior paint)\b/i, 'facade / windows'],
+];
+
+// Property types that typically carry recurring commercial maintenance contracts.
+const MAINTENANCE_TYPES = ['hospitality', 'multifamily', 'shopping_center', 'office', 'mixed_use', 'institutional', 'industrial_logistics', 'retail'];
+
 export function classifyProject(rec) {
   const text = [rec.description, rec.useDescription, rec.permitSubType, rec.permitType, rec.projectName].filter(Boolean).join(' \n ');
   const reasons = [];
@@ -66,13 +88,46 @@ export function classifyProject(rec) {
   }
 
   const landscapeSignals = LANDSCAPE_TERMS.filter(([term]) => text.toLowerCase().includes(term)).map(([, label]) => label);
-  const newConstruction = /^Bldg-New$|^Nonbldg-New$/i.test(rec.permitType || '') || /\bnew\b/i.test(rec.description || '');
+  // "New" counts only when it describes a building or site element, not new partitions/ceilings inside an existing building.
+  const newConstruction = /^Bldg-New$|^Nonbldg-New$/i.test(rec.permitType || '') || /\bnew\s+(\d+[- ]?(story|stories|storey)|building|construction|structure|warehouse|hotel|motel|center|centre|plaza|campus|facility|school|church|clinic|dealership|restaurant|store|parking (structure|lot|garage))\b/i.test(rec.description || '');
   if (newConstruction) landscapeSignals.push('New construction — site landscaping is normally required by local code');
   if (/grading/i.test(rec.permitType || '')) landscapeSignals.push('Grading permit — precedes site/landscape work');
 
   const landscapeLikelihood = landscapeSignals.length === 0 ? 'unknown' : landscapeSignals.some((s) => /landscape|irrigation|planting|plant material/.test(s)) ? 'documented' : 'likely';
 
+  // ---- Landscape relevance: is this a genuine landscaping opportunity or a general permit?
+  const nonLandscape = NON_LANDSCAPE_WORK.filter(([re]) => re.test(text)).map(([, label]) => label);
+  const isAlteration = /Alter|Repair|Addition/i.test(rec.permitType || '') && !newConstruction;
+  const mentionsLandscape = landscapeLikelihood === 'documented';
+  let landscapeRelevance; const relevanceReasons = [];
+  if (type === 'residential_small') { landscapeRelevance = 'unlikely'; relevanceReasons.push('Small residential work is outside commercial landscaping'); }
+  else if (mentionsLandscape) { landscapeRelevance = 'strong'; relevanceReasons.push('The permit text itself mentions landscape, irrigation or planting work'); }
+  else if (newConstruction && !nonLandscape.includes('demolition')) {
+    landscapeRelevance = 'strong';
+    relevanceReasons.push('New building on a site — local codes normally require new landscape, irrigation and street trees');
+    if (rec.squareFootage != null && rec.squareFootage < 5000) { landscapeRelevance = 'possible'; relevanceReasons.push(`Only ${Math.round(rec.squareFootage).toLocaleString('en-US')} sq ft — small footprint limits the landscape scope`); }
+  } else if (/grading/i.test(rec.permitType || '') || /\b(site work|site improvement|parking lot|hardscape|plaza|courtyard)\b/i.test(text)) {
+    landscapeRelevance = 'possible'; relevanceReasons.push('Site work implied by the permit (grading, parking, plaza or courtyard) — landscape often follows');
+  } else if (isAlteration && nonLandscape.length) {
+    landscapeRelevance = 'unlikely'; relevanceReasons.push(`Alteration permit for ${nonLandscape.join(', ')} — no exterior landscape scope expected`);
+  } else if (isAlteration) {
+    landscapeRelevance = 'possible'; relevanceReasons.push('Alteration or addition permit with no mention of site work — a landscape scope is possible but not indicated');
+  } else { landscapeRelevance = 'possible'; relevanceReasons.push('Nothing in the record confirms or rules out landscape work'); }
+  if (nonLandscape.length && landscapeRelevance !== 'unlikely') relevanceReasons.push(`Note: the work also includes ${nonLandscape.join(', ')}`);
+
+  // ---- Opportunity type: landscape construction vs recurring maintenance.
+  const maintenanceCandidate = MAINTENANCE_TYPES.includes(type);
+  let opportunityType;
+  if (landscapeRelevance === 'unlikely') opportunityType = maintenanceCandidate && !isAlteration ? 'maintenance' : 'unlikely';
+  else if ((newConstruction || landscapeRelevance === 'strong') && maintenanceCandidate) opportunityType = 'both';
+  else if (newConstruction || landscapeRelevance === 'strong' || /grading/i.test(rec.permitType || '')) opportunityType = 'construction';
+  else opportunityType = maintenanceCandidate ? 'maintenance' : 'unlikely';
+
   return {
+    landscapeRelevance, // strong | possible | unlikely
+    relevanceReasons,
+    nonLandscapeWork: nonLandscape,
+    opportunityType, // construction | maintenance | both | unlikely
     projectType: type,
     projectTypeLabel: PROJECT_TYPE_LABELS[type],
     confidence,

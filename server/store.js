@@ -9,7 +9,7 @@ const COLLECTIONS = [
   // Construction-intelligence platform
   'projects', 'projectHistory', 'verifications', 'sources', 'sourceRuns',
   'companies', 'contacts', 'activities', 'emails', 'documents', 'reminders',
-  'jobRuns', 'settings', 'imports',
+  'jobRuns', 'settings', 'imports', 'candidates', 'researchRuns',
 ];
 const MAX_RUNS = Number(process.env.MAX_RUNS || 20000);
 

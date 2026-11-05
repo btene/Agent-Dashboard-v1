@@ -84,6 +84,8 @@ export function createApi({ store, bus, runService, intelApi }) {
     },
   });
   api.get('/meta', (req, res) => res.json(meta()));
+  // Liveness probe for hosting platforms (no auth, no data).
+  api.get('/health', (req, res) => res.json({ ok: true, at: new Date().toISOString() }));
 
   // A machine-readable description of this dashboard. Other dashboards you
   // build can fetch /api/v1/manifest to discover what this one offers.

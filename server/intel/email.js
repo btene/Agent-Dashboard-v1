@@ -7,7 +7,19 @@ export const EMAIL_STYLES = {
   short_direct: { label: 'Short and direct', audience: 'Developers and general contractors' },
   relationship: { label: 'Professional and relationship-focused', audience: 'Property owners and asset managers' },
   bid_response: { label: 'Bid opportunity response', audience: 'Procurement teams and construction estimators' },
+  maintenance: { label: 'Maintenance partnership', audience: 'Property and facilities managers (recurring landscape maintenance)' },
 };
+
+/** Pick the message style from who the contact is. Falls back to the company default. */
+export function styleForContact(contact, project, fallback = 'short_direct') {
+  const role = contact?.role || '';
+  const title = String(contact?.title || '').toLowerCase();
+  if (['estimator', 'procurement'].includes(role) || /estimat|precon|purchas|procure|buyer/.test(title)) return 'bid_response';
+  if (['property_manager', 'facilities'].includes(role) || /property manag|facilit|maintenance/.test(title)) return 'maintenance';
+  if (['asset_manager', 'property_owner'].includes(role) || /asset manag|owner|principal|investor/.test(title)) return project?.classification?.opportunityType === 'maintenance' ? 'maintenance' : 'relationship';
+  if (['developer', 'general_contractor', 'construction_manager'].includes(role) || /develop|construction|project (manager|executive)|superintendent/.test(title)) return 'short_direct';
+  return fallback;
+}
 
 export const EMAIL_STATUSES = ['draft', 'pending_approval', 'approved', 'scheduled', 'sent', 'failed', 'rejected', 'replied'];
 
@@ -64,6 +76,9 @@ export function renderEmail({ style = 'short_direct', project, contact, company,
   if (style === 'relationship') {
     subject = `Landscape partnership — ${subjectName}`;
     body = `${greeting}\n\nI noticed ${label}${where} and wanted to introduce ${co}. We build and maintain commercial landscapes for property owners and asset managers across Southern California, with an emphasis on long-term plant health, water efficiency and curb appeal that protects asset value.${creds}\n\nIf landscape construction or ongoing maintenance for this property has not been finalised, I would welcome a short conversation about how we could support it.\n\nWould you be open to a brief call, or could you point me to the right person on your team?${sig}`;
+  } else if (style === 'maintenance') {
+    subject = `Landscape maintenance — ${subjectName}`;
+    body = `${greeting}\n\nI noticed ${label}${where} and wanted to introduce ${co}. We provide ongoing commercial landscape maintenance across Southern California — scheduled care, irrigation management, water-use reporting and seasonal colour — for properties that need to look their best year-round.${creds}\n\nIf a maintenance provider has not been selected yet for this property, I would welcome the chance to walk the site with you and put together a maintenance proposal.\n\nWould you be the right person to speak with, or could you point me to whoever manages the grounds?${sig}`;
   } else if (style === 'bid_response') {
     subject = `Landscape bid — ${subjectName}`;
     const deadline = facts.bidDeadline ? ` We note the bid date of ${facts.bidDeadline}.` : '';
@@ -94,7 +109,7 @@ export function createEmailService({ store, bus, settingsService }) {
     if (contactId && !contact) throw Object.assign(new Error('Contact not found'), { status: 404 });
     if (contact && contact.environment === 'demo') throw Object.assign(new Error('Demo contacts cannot be emailed.'), { status: 403 });
     const settings = settingsService.get();
-    const useStyle = style || settings.outreach.defaultStyle || 'short_direct';
+    const useStyle = style || styleForContact(contact, project, settings.outreach.defaultStyle || 'short_direct');
     const credentials = approvedCredentials(store.list('documents'));
     const rendered = renderEmail({ style: useStyle, project, contact, company: settings.company, credentials });
     const email = store.insert('emails', {

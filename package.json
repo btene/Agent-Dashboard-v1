@@ -16,6 +16,8 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.131.0",
     "express": "^5.2.1",
+    "imapflow": "^1.7.8",
+    "mailparser": "^3.14.2",
     "nodemailer": "^7.0.13",
     "pdf-parse": "^1.1.4",
     "xlsx": "^0.18.5"

@@ -18,6 +18,7 @@ import CrmPage from './pages/CrmPage.jsx';
 import DocumentsPage from './pages/DocumentsPage.jsx';
 import OnboardingPage from './pages/OnboardingPage.jsx';
 import SettingsPage from './pages/SettingsPage.jsx';
+import CompanyPage from './pages/CompanyPage.jsx';
 import { useLiveEvents } from './lib/hooks.js';
 import { postToParent } from './lib/bridge.js';
 
@@ -37,6 +38,7 @@ export default function App() {
         <Route path="/admin" element={<AdminPage />} />
         <Route path="/outreach" element={<OutreachPage />} />
         <Route path="/crm" element={<CrmPage />} />
+        <Route path="/companies/:id" element={<CompanyPage />} />
         <Route path="/documents" element={<DocumentsPage />} />
         <Route path="/settings" element={<SettingsPage />} />
         <Route path="/agents" element={<AgentsPage />} />

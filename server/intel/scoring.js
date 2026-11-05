@@ -58,11 +58,12 @@ export function scoreProject(project, settings = {}) {
     else add('timing', 2, 20, `Issued over two years ago`);
   } else add('timing', 8, 20, `Status "${st}" not recognised — timing uncertain`);
 
-  // ---- Landscaping requirement (20)
-  if (project.landscapeScopeDocumented) add('landscape', 20, 20, `Landscape scope documented by the source: "${String(project.landscapeScopeDocumented).slice(0, 80)}"`);
-  else if (cls.landscapeLikelihood === 'documented') add('landscape', 16, 20, `Permit text mentions landscape work: ${cls.landscapeSignals.filter((s) => /landscape|irrigation|planting|plant material/.test(s)).join('; ')}`);
-  else if (cls.landscapeLikelihood === 'likely') add('landscape', 9, 20, `No landscape plan on record, but: ${cls.landscapeSignals.join('; ')}`);
-  else add('landscape', 3, 20, 'No documented landscape, irrigation or site-improvement scope — needs research');
+  // ---- Landscaping requirement (20) — the deciding category for "real opportunity vs general permit".
+  if (project.landscapeScopeDocumented) add('landscape', 20, 20, `Landscape scope confirmed: "${String(project.landscapeScopeDocumented).slice(0, 80)}"`);
+  else if (cls.landscapeRelevance === 'strong' && cls.landscapeLikelihood === 'documented') add('landscape', 17, 20, `Permit text mentions landscape work: ${cls.landscapeSignals.filter((s) => /landscape|irrigation|planting|plant material/.test(s)).join('; ')} (not yet confirmed from plans)`);
+  else if (cls.landscapeRelevance === 'strong') add('landscape', 13, 20, `${cls.relevanceReasons[0]} — scope size not yet confirmed`);
+  else if (cls.landscapeRelevance === 'possible') add('landscape', 6, 20, `${cls.relevanceReasons[0]} — needs research`);
+  else add('landscape', 0, 20, cls.relevanceReasons[0] || 'No landscape scope expected');
 
   // ---- Decision-maker accessibility (10)
   const named = [project.generalContractor && 'general contractor', project.applicant && 'applicant/developer', project.propertyOwner && 'property owner'].filter(Boolean);
@@ -85,6 +86,12 @@ export function scoreProject(project, settings = {}) {
   let total = breakdown.reduce((s, b) => s + b.points, 0);
   const notes = [];
   if (cls.excluded) { total = Math.min(total, 15); notes.push('Capped at 15: individual homes and small residential projects are excluded.'); }
+  if (cls.landscapeRelevance === 'unlikely' && !cls.excluded && !project.landscapeScopeDocumented) {
+    total = Math.min(total, cls.opportunityType === 'maintenance' ? 45 : 30);
+    notes.push(cls.opportunityType === 'maintenance'
+      ? 'Capped at 45: this permit is not a landscape-construction opportunity, but the property type may carry a maintenance contract.'
+      : 'Capped at 30: general construction permit with no landscape scope indicated (interior, roofing, equipment or similar).');
+  }
   if (prefs.minValuation && v != null && v < prefs.minValuation) { total = Math.min(total, 30); notes.push(`Capped at 30: below your minimum valuation of $${Number(prefs.minValuation).toLocaleString('en-US')}.`); }
 
   return { total, breakdown, notes, scoredAt: new Date().toISOString(), version: 'als2000-v1' };

@@ -14,7 +14,7 @@ import { computeDashboard } from './dashboard.js';
 
 const err = (status, message) => Object.assign(new Error(message), { status });
 
-export function createIntelApi({ store, bus, settingsService, sourceService, emailService, documentService, crmService, scheduler }) {
+export function createIntelApi({ store, bus, settingsService, sourceService, emailService, documentService, crmService, scheduler, replyService, researchService }) {
   const api = express.Router();
   const now = () => new Date().toISOString();
   const requireRole = (role) => (req, res, next) => (roleRank(req.role || 'owner') >= roleRank(role) ? next() : next(err(403, `This action needs the ${role} role`)));
@@ -38,6 +38,68 @@ export function createIntelApi({ store, bus, settingsService, sourceService, ema
     res.json(settingsService.publicView(s));
   });
   api.post('/settings/email/test', requireRole('owner'), async (req, res) => res.json(await emailService.testConnection()));
+  api.post('/settings/email/test-imap', requireRole('owner'), async (req, res) => res.json(await replyService.testConnection()));
+  api.post('/inbox/check', requireRole('staff'), async (req, res) => res.json(await replyService.checkInbox({ sinceDays: Number(req.body?.sinceDays) || 30 })));
+  api.get('/email-providers', (req, res) => res.json(replyService.EMAIL_PROVIDERS));
+
+  // ---- Decision-maker research -----------------------------------------
+  api.get('/providers', (req, res) => {
+    const s = settingsService.publicView();
+    res.json(Object.entries(researchService.PROVIDER_INFO).map(([id, info]) => ({ ...info, config: s.providers?.[id] || { enabled: false } })));
+  });
+  api.patch('/providers/:id', requireRole('owner'), (req, res) => {
+    if (!researchService.PROVIDER_INFO[req.params.id]) throw err(404, 'Unknown provider');
+    const patch = {};
+    if (req.body.enabled !== undefined) patch.enabled = Boolean(req.body.enabled);
+    for (const c of researchService.PROVIDER_INFO[req.params.id].credentials) if (typeof req.body[c.key] === 'string' && req.body[c.key] !== '••••••••') patch[c.key] = req.body[c.key].trim();
+    settingsService.update({ providers: { [req.params.id]: patch } });
+    const s = settingsService.publicView();
+    res.json({ ...researchService.PROVIDER_INFO[req.params.id], config: s.providers[req.params.id] });
+  });
+  api.post('/providers/:id/test', requireRole('owner'), async (req, res) => {
+    const id = req.params.id;
+    const { PROVIDERS } = await import('./providers/index.js');
+    if (!PROVIDERS[id]) throw err(404, 'Unknown provider');
+    const cfg = settingsService.get().providers[id];
+    if (!PROVIDERS[id].isConfigured(cfg)) return res.json({ ok: false, error: 'Credentials are missing.' });
+    try {
+      const r = await PROVIDERS[id].enrichCompany(cfg, { domain: 'constructconnect.com', name: 'ConstructConnect' });
+      res.json({ ok: true, detail: r ? `Connected. Test lookup returned "${r.name}".` : 'Connected (test lookup returned no match, which is fine).' });
+    } catch (e) { res.json({ ok: false, error: e.message }); }
+  });
+  api.post('/projects/:id/research', requireRole('staff'), async (req, res) => res.json(await researchService.findDecisionMakers({ projectId: req.params.id, domain: req.body?.domain, trigger: 'manual' })));
+  api.get('/projects/:id/research', (req, res) => {
+    const p = store.get('projects', req.params.id);
+    if (!p) throw err(404, 'Project not found');
+    const companies = researchService.companiesFor(p).map((c) => ({ ...c, company: c.company ? { id: c.company.id, domain: c.company.domain, website: c.company.website } : null, relationship: researchService.relationshipFor(c.name, p.environment), linkedin: researchService.linkedinLinks({ company: c.name, titles: researchService.titleSetFor(p.classification?.opportunityType).slice(0, 4).flatMap((g) => g.titles.slice(0, 1)) }) }));
+    const runs = store.list('researchRuns').filter((r) => r.projectId === p.id).slice(-5).reverse();
+    res.json({ projectId: p.id, opportunityType: p.classification?.opportunityType, titlePriorities: researchService.titleSetFor(p.classification?.opportunityType).map((g) => g.label), companies, candidates: researchService.candidatesFor({ projectId: p.id }), runs });
+  });
+  api.post('/companies/:id/research', requireRole('staff'), async (req, res) => res.json(await researchService.findDecisionMakers({ companyId: req.params.id, domain: req.body?.domain, trigger: 'manual' })));
+  api.post('/companies/:id/enrich', requireRole('staff'), async (req, res) => res.json(await researchService.enrichCompany(req.params.id)));
+  api.get('/companies/:id', (req, res) => {
+    const c = store.get('companies', req.params.id);
+    if (!c) throw err(404, 'Company not found');
+    const projects = store.list('projects').filter((p) => p.environment === c.environment && [p.generalContractor, p.applicant, p.propertyOwner].some((n) => n && n.toLowerCase() === c.name.toLowerCase())).map((p) => ({ id: p.id, displayName: p.displayName, city: p.city, score: p.score?.total, stage: p.stage, role: p.generalContractor?.toLowerCase() === c.name.toLowerCase() ? 'general contractor' : p.applicant?.toLowerCase() === c.name.toLowerCase() ? 'developer / applicant' : 'property owner' }));
+    res.json({ ...c, projects, relationship: researchService.relationshipFor(c.name, c.environment), candidates: researchService.candidatesFor({ companyId: c.id }), contacts: store.list('contacts').filter((x) => x.companyId === c.id || (x.company || '').toLowerCase() === c.name.toLowerCase()), linkedin: researchService.linkedinLinks({ company: c.name, titles: researchService.titleSetFor('both').slice(0, 6).flatMap((g) => g.titles.slice(0, 1)) }) });
+  });
+  api.patch('/companies/:id', requireRole('staff'), (req, res) => { const c = store.get('companies', req.params.id); if (!c) throw err(404, 'Company not found'); const patch = {}; for (const k of ['name', 'type', 'website', 'domain', 'phone', 'address', 'notes', 'linkedinUrl']) if (typeof req.body[k] === 'string') patch[k] = req.body[k].trim() || null; if (patch.website && !patch.domain) patch.domain = patch.website.replace(/^https?:\/\//, '').replace(/\/.*$/, '').replace(/^www\./, ''); res.json(store.update('companies', c.id, { ...patch, updatedAt: now() })); });
+  api.get('/candidates', (req, res) => res.json(researchService.candidatesFor({ projectId: req.query.projectId, companyId: req.query.companyId })));
+  api.post('/candidates/:id/verify-email', requireRole('staff'), async (req, res) => res.json(await researchService.verifyCandidateEmail(req.params.id)));
+  api.post('/candidates/:id/save', requireRole('staff'), (req, res) => res.status(201).json(researchService.saveCandidate(req.params.id, { linkedinUrl: req.body?.linkedinUrl })));
+  api.post('/candidates/:id/dismiss', requireRole('staff'), (req, res) => res.json(researchService.dismissCandidate(req.params.id, req.body?.reason)));
+  api.post('/contacts/manual', requireRole('staff'), (req, res) => res.status(201).json(researchService.addManualContact(req.body || {})));
+  api.post('/relationships', requireRole('staff'), (req, res) => {
+    // Record an introduction, referral, meeting, previous bid or past project against a company and/or contact.
+    const { type, companyName, companyId, contactId, projectId, summary, at } = req.body || {};
+    if (!['introduction', 'referral', 'meeting', 'previous_bid', 'past_project', 'call', 'note'].includes(type)) throw err(400, 'Unknown relationship type');
+    if (!companyName && !companyId && !contactId && !projectId) throw err(400, 'Link the record to a company, contact or project');
+    const company = companyId ? store.get('companies', companyId) : null;
+    const a = store.insert('activities', { id: store.newId('act'), type, projectId: projectId || null, contactId: contactId || null, companyId: company?.id || null, companyName: companyName || company?.name || null, at: at || now(), summary: String(summary || type).slice(0, 2000), recordedAt: now() });
+    if (contactId) store.update('contacts', contactId, { lastContactedAt: a.at });
+    res.status(201).json(a);
+  });
+  api.get('/relationships/check', (req, res) => res.json(researchService.relationshipFor(req.query.company, 'live')));
 
   api.get('/onboarding', (req, res) => {
     const s = settingsService.get();
@@ -118,6 +180,8 @@ export function createIntelApi({ store, bus, settingsService, sourceService, ema
     if (q.county) list = list.filter((p) => String(q.county).split(',').map((s) => s.toLowerCase()).includes((p.county || '').toLowerCase()));
     if (q.city) list = list.filter((p) => (p.city || '').toLowerCase() === String(q.city).toLowerCase());
     if (q.projectType) list = list.filter((p) => String(q.projectType).split(',').includes(p.classification?.projectType));
+    if (q.relevance) list = list.filter((p) => String(q.relevance).split(',').includes(p.classification?.landscapeRelevance));
+    if (q.opportunity) list = list.filter((p) => String(q.opportunity).split(',').includes(p.classification?.opportunityType));
     if (q.excludeResidential !== 'false') list = list.filter((p) => !p.classification?.excluded || q.includeExcluded === 'true');
     if (q.verified === 'true') list = list.filter((p) => p.verification?.status === 'verified');
     if (q.needsVerification === 'true') list = list.filter((p) => p.verification?.status !== 'verified' || (p.lastVerifiedAt && Date.parse(p.lastVerifiedAt) < Date.now() - 30 * 86_400_000));
@@ -131,7 +195,9 @@ export function createIntelApi({ store, bus, settingsService, sourceService, ema
     const list = filterProjects(req.query);
     const limit = Math.min(Number(req.query.limit) || 100, 1000);
     const offset = Number(req.query.offset) || 0;
-    res.json({ total: list.length, limit, offset, environment: req.query.environment === 'demo' ? 'demo' : 'live', items: list.slice(offset, offset + limit).map((p) => presentProject(p)) });
+    const contactsByProject = new Map();
+    for (const c of store.list('contacts')) for (const pid of c.projectIds || []) contactsByProject.set(pid, [...(contactsByProject.get(pid) || []), c]);
+    res.json({ total: list.length, limit, offset, environment: req.query.environment === 'demo' ? 'demo' : 'live', items: list.slice(offset, offset + limit).map((p) => presentProject(p, { contacts: contactsByProject.get(p.id) || [] })) });
   });
   api.get('/projects/export.csv', (req, res) => {
     res.set('content-type', 'text/csv').set('content-disposition', `attachment; filename="projects-${now().slice(0, 10)}.csv"`);
@@ -145,7 +211,7 @@ export function createIntelApi({ store, bus, settingsService, sourceService, ema
     const contacts = store.list('contacts').filter((c) => c.projectIds?.includes(p.id));
     const emails = store.list('emails').filter((e) => e.projectId === p.id).slice().reverse();
     const activities = store.list('activities').filter((a) => a.projectId === p.id).slice().reverse();
-    res.json({ ...presentProject(p, { includeRaw: req.query.raw === 'true' }), history, verifications, contacts, emails, activities });
+    res.json({ ...presentProject(p, { includeRaw: req.query.raw === 'true', contacts }), history, verifications, contacts, emails, activities });
   });
   api.patch('/projects/:id', requireRole('staff'), (req, res) => {
     const p = store.get('projects', req.params.id);
@@ -195,7 +261,16 @@ export function createIntelApi({ store, bus, settingsService, sourceService, ema
     res.send(crmService.exportCsv('contacts', store.list('contacts').filter((c) => c.environment === 'live')));
   });
   api.post('/contacts', requireRole('staff'), (req, res) => res.status(201).json(crmService.upsertContact({ ...req.body, environment: 'live' })));
-  api.patch('/contacts/:id', requireRole('staff'), (req, res) => { const c = store.get('contacts', req.params.id); if (!c) throw err(404, 'Contact not found'); res.json(crmService.upsertContact({ ...c, ...req.body, id: c.id, environment: c.environment })); });
+  api.patch('/contacts/:id', requireRole('staff'), (req, res) => {
+    const c = store.get('contacts', req.params.id);
+    if (!c) throw err(404, 'Contact not found');
+    const saved = crmService.upsertContact({ ...c, ...req.body, id: c.id, environment: c.environment });
+    const extra = {};
+    if (typeof req.body.linkedinUrl === 'string') { extra.linkedinUrl = req.body.linkedinUrl.trim() || null; extra.linkedinVerifiedAt = extra.linkedinUrl ? now() : null; }
+    if (req.body.optedOut !== undefined) extra.optedOut = Boolean(req.body.optedOut);
+    if (req.body.emailConfirmed === true) { extra.emailVerification = { status: 'valid', detail: 'Confirmed by your team', method: 'manual', checkedAt: now() }; extra.lastVerifiedAt = now(); }
+    res.json(Object.keys(extra).length ? store.update('contacts', saved.id, extra) : saved);
+  });
   api.delete('/contacts/:id', requireRole('staff'), (req, res) => { crmService.removeContact(req.params.id); res.status(204).end(); });
   api.get('/companies', (req, res) => res.json(store.list('companies').filter((c) => c.environment === 'live')));
   api.post('/companies', requireRole('staff'), (req, res) => res.status(201).json(crmService.upsertCompany({ ...req.body, environment: 'live' })));

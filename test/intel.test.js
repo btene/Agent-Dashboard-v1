@@ -58,7 +58,7 @@ test('defaults: semi-automatic mode with email sending disabled', async () => {
   const sending = body.items.find((a) => a.id === 'email_sending');
   assert.equal(sending.config.enabled, false);
   assert.ok(body.items.filter((a) => a.id !== 'email_sending').every((a) => a.config.enabled));
-  assert.equal(body.items.length, 10);
+  assert.equal(body.items.length, 11);
 });
 
 test('source registry lists every jurisdiction with coverage, licence and refresh frequency', async () => {

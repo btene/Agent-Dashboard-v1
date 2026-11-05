@@ -6,7 +6,7 @@ import { POLL_OPTIONS } from './sources.js';
 
 const INTERVAL_MS = Object.fromEntries(POLL_OPTIONS.map((o) => [o.id, o.hours ? o.hours * 3_600_000 : null]));
 
-export function createScheduler({ store, bus, settingsService, sourceService, emailService, crmService, tickMs = 60_000, autoStart = true }) {
+export function createScheduler({ store, bus, settingsService, sourceService, emailService, crmService, replyService, researchService, tickMs = 60_000, autoStart = true }) {
   const state = Object.fromEntries(AUTOMATIONS.map((a) => [a.id, { id: a.id, status: 'idle', lastRunAt: null, lastSuccessAt: null, lastError: null, nextRunAt: null, lastSummary: null, running: false }]));
   let timer = null;
   const now = () => new Date().toISOString();
@@ -56,21 +56,38 @@ export function createScheduler({ store, bus, settingsService, sourceService, em
       const pending = store.list('imports').filter((i) => i.status === 'preview' && i.sourceId !== 'constructconnect').length;
       return { summary: pending ? `${pending} upload${pending > 1 ? 's' : ''} waiting for column mapping` : 'No pending uploads.' };
     },
-    async developer_research() {
-      let flagged = 0;
+    async developer_research({ trigger }) {
+      const settings = settingsService.get();
+      const min = settings.scoring.minScoreForOutreach || 60;
+      let flagged = 0; let researched = 0; let found = 0; const errors = [];
+      const { enabledProviders } = await import('./providers/index.js');
+      const providersOn = enabledProviders(settings).length > 0;
+      const researchedRecently = new Set(store.list('researchRuns').filter((r) => Date.parse(r.startedAt) > Date.now() - 14 * 86_400_000).map((r) => r.projectId));
       for (const p of store.list('projects')) {
-        if (p.environment !== 'live' || p.classification?.excluded) continue;
-        if (!p.applicant && !p.generalContractor && !p.propertyOwner && p.stage === 'verified' && (p.score?.total || 0) >= (settingsService.get().scoring.minScoreForOutreach || 60)) {
-          store.update('projects', p.id, { stage: 'researching', updatedAt: now() });
-          store.insert('activities', { id: store.newId('act'), type: 'research', projectId: p.id, at: now(), summary: 'Developer, owner and contractor are not in the permit record. Look them up on the agency record page or a licensed provider and add them here.' });
-          flagged++;
+        if (p.environment !== 'live' || p.classification?.excluded || (p.score?.total || 0) < min || !['verified', 'researching', 'discovered'].includes(p.stage)) continue;
+        const named = p.applicant || p.generalContractor || p.propertyOwner;
+        if (!named) {
+          if (p.stage !== 'researching') { store.update('projects', p.id, { stage: 'researching', updatedAt: now() }); store.insert('activities', { id: store.newId('act'), type: 'research', projectId: p.id, at: now(), summary: 'Developer, owner and contractor are not in the permit record. Look the permit up on the agency record page and add the companies under "Add researched facts".' }); flagged++; }
+          continue;
+        }
+        if (providersOn && researchService && !researchedRecently.has(p.id) && researched < 25) {
+          try { const r = await researchService.findDecisionMakers({ projectId: p.id, trigger }); researched++; found += r.candidateCount; } catch (err) { errors.push(err.message); }
         }
       }
-      return { summary: `${flagged} project${flagged === 1 ? '' : 's'} flagged for research. No research provider is connected, so names are not filled in automatically.` };
+      return { summary: `${flagged} project${flagged === 1 ? '' : 's'} flagged (no company named); ${researched} researched via providers, ${found} candidate${found === 1 ? '' : 's'} found${providersOn ? '' : '. No contact-data provider is enabled, so no people were looked up'}.`, error: errors.length && !researched ? errors[0] : null };
     },
     async contact_enrichment() {
-      const missing = store.list('contacts').filter((c) => c.environment === 'live' && !c.email).length;
-      return { summary: `${missing} contact${missing === 1 ? '' : 's'} missing an email address. No enrichment provider is connected, so nothing was looked up.` };
+      const settings = settingsService.get();
+      const { enabledProviders, PROVIDERS, PROVIDER_INFO } = await import('./providers/index.js');
+      const on = enabledProviders(settings);
+      const missing = store.list('candidates').filter((c) => c.status === 'candidate' && c.email && !c.emailVerification);
+      if (!on.length) return { summary: `${missing.length} candidate${missing.length === 1 ? '' : 's'} with unverified emails. No enrichment provider is enabled, so nothing was verified.` };
+      const verifier = on.find((id) => PROVIDER_INFO[id].capabilities.emailVerification === true) || on[0];
+      let verified = 0; const errors = [];
+      for (const c of missing.slice(0, 20)) {
+        try { await researchService.verifyCandidateEmail(c.id); verified++; } catch (err) { errors.push(err.message); if (/credits|rate limit|rejected/.test(err.message)) break; }
+      }
+      return { summary: `${verified} email${verified === 1 ? '' : 's'} verified with ${PROVIDER_INFO[verifier].name}; ${Math.max(0, missing.length - verified)} remaining`, error: errors.length && !verified ? errors[0] : null };
     },
     async ai_email_drafting({ trigger }) {
       const settings = settingsService.get();
@@ -103,6 +120,13 @@ export function createScheduler({ store, bus, settingsService, sourceService, em
     async follow_up_reminders() {
       const n = crmService.createFollowUpReminders(settingsService.get().outreach.followUpDays || 5);
       return { summary: `${n} reminder${n === 1 ? '' : 's'} created` };
+    },
+    async reply_tracking() {
+      if (!replyService) return { summary: 'Reply tracking service unavailable.' };
+      const settings = settingsService.get();
+      if (!settings.email.username || !settings.email.password || !(settings.email.imapHost || settings.email.provider)) return { summary: 'No mailbox connected. Add IMAP details under Settings → Email account to track replies.' };
+      const r = await replyService.checkInbox();
+      return { summary: `${r.scanned} message${r.scanned === 1 ? '' : 's'} scanned, ${r.newReplies} new repl${r.newReplies === 1 ? 'y' : 'ies'} matched`, error: r.errors.length === r.scanned && r.scanned ? r.errors[0] : null };
     },
     async crm_sync() {
       let n = 0;

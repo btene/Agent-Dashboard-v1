@@ -99,9 +99,35 @@ export function applySourceUpdate(existing, rec, { settings = {}, now = new Date
   return changes;
 }
 
+/**
+ * What has actually been confirmed, as opposed to estimated. Shown on every
+ * lead card so nobody mistakes an estimate for a verified fact.
+ */
+export function confirmations(p, contacts = []) {
+  const scopeProv = p.provenance?.landscapeScopeDocumented;
+  const landscapeScope = p.landscapeScopeDocumented && ['user', 'third_party', 'government'].includes(scopeProv)
+    ? { status: 'confirmed', label: 'Landscape scope confirmed', detail: `Recorded from ${PROVENANCE[scopeProv]?.label.toLowerCase()}` }
+    : p.classification?.landscapeLikelihood === 'documented'
+      ? { status: 'indicated', label: 'Landscape mentioned in permit text', detail: 'Mentioned by the agency record but the scope and size are not confirmed' }
+      : { status: 'unconfirmed', label: 'Landscape scope not confirmed', detail: 'Automated estimate only' };
+  const verifiedContacts = contacts.filter((c) => c.environment === p.environment && (c.emailVerification?.status === 'valid' || c.linkedinVerifiedAt || c.provenance === 'user'));
+  const anyContacts = contacts.filter((c) => c.environment === p.environment);
+  const contact = verifiedContacts.length
+    ? { status: 'confirmed', label: `${verifiedContacts.length} confirmed contact${verifiedContacts.length > 1 ? 's' : ''}`, detail: 'Verified email, verified LinkedIn profile, or entered by your team' }
+    : anyContacts.length
+      ? { status: 'indicated', label: `${anyContacts.length} unverified contact${anyContacts.length > 1 ? 's' : ''}`, detail: 'From a data provider; not yet verified by a person' }
+      : { status: 'unconfirmed', label: 'No contact identified', detail: 'Use Find decision-makers' };
+  const named = ['applicant', 'generalContractor', 'propertyOwner'].filter((f) => p[f]);
+  const company = named.length
+    ? { status: ['government', 'third_party', 'user'].includes(p.provenance?.[named[0]]) ? 'confirmed' : 'indicated', label: `${named.map((f) => ({ applicant: 'developer', generalContractor: 'GC', propertyOwner: 'owner' })[f]).join(', ')} named`, detail: named.map((f) => `${f}: ${PROVENANCE[p.provenance?.[f]]?.label || 'unknown source'}`).join('; ') }
+    : { status: 'unconfirmed', label: 'No company named', detail: 'The source record does not name a developer, GC or owner' };
+  return { landscapeScope, contact, company };
+}
+
 /** Shape sent to the UI: null source fields are replaced by the placeholder text with provenance kept alongside. */
-export function presentProject(p, { includeRaw = false } = {}) {
+export function presentProject(p, { includeRaw = false, contacts = [] } = {}) {
   const out = { ...p };
+  out.confirmations = confirmations(p, contacts);
   if (!includeRaw) delete out.raw;
   out.display = {};
   for (const f of SOURCE_FIELDS) out.display[f] = p[f] === null || p[f] === undefined ? NOT_YET_VERIFIED : p[f];

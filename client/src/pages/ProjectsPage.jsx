@@ -4,6 +4,7 @@ import { useApi, useLiveEvents, useThrottled } from '../lib/hooks.js';
 import { usd, day, useEnvironment, STAGE_LABEL, NOT_YET_VERIFIED } from '../lib/intel.js';
 import { ProvenanceBadge, ScoreBadge, SourceLinks, Help } from '../components/intel.jsx';
 import { ErrorBox, Empty } from '../components/ui.jsx';
+import { ConfirmationBadges } from '../components/research.jsx';
 
 export default function ProjectsPage() {
   const [params, setParams] = useSearchParams();
@@ -33,6 +34,8 @@ export default function ProjectsPage() {
           <select value={get('tier')} onChange={(e) => set('tier', e.target.value)}><option value="">Any priority</option><option value="high">High priority (75+)</option><option value="high,medium">Worth pursuing (50+)</option><option value="low">Low priority</option></select>
           <select value={get('stage')} onChange={(e) => set('stage', e.target.value)}><option value="">Any stage</option>{(reference.data?.pipelineStages || []).map((s) => <option key={s} value={s}>{STAGE_LABEL[s]}</option>)}</select>
           <select value={get('projectType')} onChange={(e) => set('projectType', e.target.value)}><option value="">Any project type</option>{Object.entries(reference.data?.projectTypes || {}).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select>
+          <select value={get('relevance')} onChange={(e) => set('relevance', e.target.value)}><option value="">Any landscape fit</option><option value="strong">Strong landscape fit</option><option value="strong,possible">Strong or possible</option><option value="unlikely">Unlikely (general permits)</option></select>
+          <select value={get('opportunity')} onChange={(e) => set('opportunity', e.target.value)}><option value="">Construction or maintenance</option><option value="construction,both">Landscape construction</option><option value="maintenance,both">Recurring maintenance</option></select>
           <select value={get('county')} onChange={(e) => set('county', e.target.value)}><option value="">Any county</option>{['Santa Barbara', 'Ventura', 'Los Angeles', 'San Bernardino', 'Orange'].map((c) => <option key={c}>{c}</option>)}</select>
           <select value={get('sort') || 'score'} onChange={(e) => set('sort', e.target.value)}><option value="score">Sort: score</option><option value="newest">Sort: newest found</option><option value="issued">Sort: issue date</option><option value="valuation">Sort: valuation</option></select>
           <label className="check small"><input type="checkbox" checked={get('needsVerification') === 'true'} onChange={(e) => set('needsVerification', e.target.checked ? 'true' : '')} />Needs verification</label>
@@ -63,7 +66,9 @@ export default function ProjectsPage() {
                   <span className="tag">Valuation {usd(p.valuation, { compact: true })}</span>
                   {p.verification?.status !== 'verified' && <span className="tag" style={{ color: 'var(--critical-text)' }}>Verification: {p.verification?.status}</span>}
                   {p.contactCount > 0 && <span className="tag">{p.contactCount} contact{p.contactCount > 1 ? 's' : ''}</span>}
+                  <span className="tag">{{ strong: '🌿 Strong landscape fit', possible: '🌱 Possible landscape fit', unlikely: '⛔ Unlikely landscape fit' }[p.classification?.landscapeRelevance] || ''}</span>
                 </div>
+                <div style={{ marginTop: 6 }}><span className="small muted">Source: {p.sourceName} · </span><ConfirmationBadges c={p.confirmations} /></div>
               </div>
               <div className="stack" style={{ gap: 6, alignItems: 'flex-end' }}>
                 <SourceLinks project={p} size="sm" />

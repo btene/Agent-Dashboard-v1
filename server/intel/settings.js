@@ -12,6 +12,7 @@ export const AUTOMATIONS = [
   { id: 'email_sending', label: 'Automated email sending', description: 'Sends approved emails from your connected account. Off by default — turn it on only when you are ready.', manualSafe: false },
   { id: 'follow_up_reminders', label: 'Follow-up reminders', description: 'Creates a reminder when a sent email has had no reply for a set number of days.', manualSafe: true },
   { id: 'crm_sync', label: 'CRM synchronization', description: 'Keeps the built-in CRM (companies, contacts, pipeline) in step with projects and emails, and pushes changes to webhooks you have configured.', manualSafe: true },
+  { id: 'reply_tracking', label: 'Reply tracking (inbox check)', description: 'Reads your connected mailbox and matches replies to emails this platform sent, then updates the project, the contact and any open reminder.', manualSafe: true },
 ];
 
 export const MODES = {
@@ -47,8 +48,8 @@ export function defaultSettings() {
     },
     territory: {
       description: 'Santa Barbara through San Bernardino, including relevant cities within the service territory',
-      counties: ['Santa Barbara', 'Ventura', 'Los Angeles', 'San Bernardino', 'Orange'],
-      preferredCities: ['Los Angeles', 'Santa Barbara', 'San Bernardino', 'Ventura', 'Oxnard', 'Thousand Oaks', 'Pasadena', 'Burbank', 'Glendale', 'Long Beach', 'Riverside', 'Ontario', 'Rancho Cucamonga', 'Fontana', 'Santa Clarita', 'Anaheim', 'Irvine'],
+      counties: ['Santa Barbara', 'Ventura', 'Los Angeles', 'San Bernardino', 'Riverside', 'Orange'],
+      preferredCities: ['Los Angeles', 'Santa Barbara', 'San Bernardino', 'Riverside', 'Ventura', 'Oxnard', 'Thousand Oaks', 'Pasadena', 'Burbank', 'Glendale', 'Long Beach', 'Ontario', 'Rancho Cucamonga', 'Fontana', 'Santa Clarita', 'Corona', 'Moreno Valley', 'Temecula', 'Anaheim', 'Irvine'],
       mapCenter: { lat: 34.25, lon: -118.4 },
       mapZoom: 8,
     },
@@ -57,7 +58,13 @@ export function defaultSettings() {
     mode: 'semi_automatic',
     pauseAll: false,
     outreach: { defaultStyle: 'short_direct', followUpDays: 5, dailySendLimit: 20, autoSendMinScore: 80 },
-    email: { provider: null, address: '', smtpHost: '', smtpPort: 587, smtpSecure: false, username: '', password: '', connectedAt: null, lastTestAt: null, lastTestOk: null, lastTestError: null },
+    email: { provider: 'gmail', address: '', smtpHost: '', smtpPort: 587, smtpSecure: false, imapHost: '', imapPort: 993, imapSecure: true, username: '', password: '', connectedAt: null, lastTestAt: null, lastTestOk: null, lastTestError: null, lastImapTestAt: null, lastImapTestOk: null, lastImapTestError: null, lastInboxCheckAt: null, lastInboxResult: null, seenUids: [] },
+    providers: {
+      apollo: { enabled: false, apiKey: '' },
+      hunter: { enabled: false, apiKey: '' },
+      pdl: { enabled: false, apiKey: '' },
+      zoominfo: { enabled: false, username: '', clientId: '', privateKey: '' },
+    },
     onboarding: { startedAt: null, completedAt: null, steps: Object.fromEntries(ONBOARDING_STEPS.map((s) => [s.id, { status: 'pending', completedAt: null }])), dismissed: false },
     environment: 'live', // which environment the UI is viewing
     createdAt: new Date().toISOString(),
@@ -87,7 +94,8 @@ export function createSettingsService(store) {
   /** Redact secrets before sending settings to the browser. */
   function publicView() {
     const s = structuredClone(get());
-    s.email = { ...s.email, password: s.email.password ? '••••••••' : '', hasPassword: Boolean(s.email.password) };
+    s.email = { ...s.email, password: s.email.password ? '••••••••' : '', hasPassword: Boolean(s.email.password), seenUids: undefined };
+    s.providers = Object.fromEntries(Object.entries(s.providers || {}).map(([k, v]) => [k, { ...v, ...Object.fromEntries(Object.entries(v).filter(([f]) => /key|secret|password/i.test(f)).map(([f, val]) => [f, val ? '••••••••' : ''])), configured: Object.entries(v).filter(([f]) => /key|secret|password/i.test(f)).some(([, val]) => Boolean(val)) }]));
     return s;
   }
   return { get, update, publicView };

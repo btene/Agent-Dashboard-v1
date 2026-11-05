@@ -1,7 +1,8 @@
 // Built-in CRM: companies, contacts, activities and follow-up reminders.
 import { PIPELINE_STAGES } from './projects.js';
 
-export const CONTACT_ROLES = ['developer', 'property_owner', 'general_contractor', 'asset_manager', 'procurement', 'estimator', 'architect', 'landscape_architect', 'other'];
+export const CONTACT_ROLES = ['developer', 'property_owner', 'general_contractor', 'construction_manager', 'property_manager', 'facilities', 'asset_manager', 'procurement', 'estimator', 'architect', 'landscape_architect', 'other'];
+export const RELATIONSHIP_TYPES = ['introduction', 'referral', 'meeting', 'previous_bid', 'past_project', 'call', 'note'];
 export const COMPANY_TYPES = ['developer', 'property_owner', 'general_contractor', 'asset_manager', 'architect', 'other'];
 
 export function createCrmService({ store, bus }) {
@@ -21,7 +22,7 @@ export function createCrmService({ store, bus }) {
     if (!name) throw Object.assign(new Error('`name` is required'), { status: 400 });
     const existing = body.id ? store.get('companies', body.id) : store.list('companies').find((c) => c.name.toLowerCase() === name.toLowerCase() && c.environment === (body.environment || 'live'));
     const doc = {
-      name, type: COMPANY_TYPES.includes(body.type) ? body.type : 'other', website: str(body.website) ?? null, phone: str(body.phone) ?? null, address: str(body.address) ?? null, notes: str(body.notes) ?? '',
+      name, type: COMPANY_TYPES.includes(body.type) ? body.type : 'other', website: str(body.website) ?? null, domain: str(body.domain) ?? (str(body.website) ? str(body.website).replace(/^https?:\/\//, '').replace(/\/.*$/, '').replace(/^www\./, '') : null), phone: str(body.phone) ?? null, address: str(body.address) ?? null, notes: str(body.notes) ?? '',
       provenance: ['government', 'third_party', 'user'].includes(body.provenance) ? body.provenance : 'user', sourceNote: str(body.sourceNote) ?? null, environment: body.environment || 'live', updatedAt: now(),
     };
     if (existing) return store.update('companies', existing.id, doc);
@@ -70,7 +71,7 @@ export function createCrmService({ store, bus }) {
   function addActivity(body) {
     const p = store.get('projects', body.projectId);
     if (!p) throw Object.assign(new Error('Project not found'), { status: 404 });
-    const type = ['note', 'call', 'meeting', 'bid_submitted', 'contract_awarded', 'reply_received', 'research'].includes(body.type) ? body.type : 'note';
+    const type = ['note', 'call', 'meeting', 'bid_submitted', 'contract_awarded', 'reply_received', 'research', 'introduction', 'referral', 'previous_bid', 'past_project'].includes(body.type) ? body.type : 'note';
     const a = store.insert('activities', { id: store.newId('act'), type, projectId: p.id, contactId: body.contactId || null, at: now(), summary: str(body.summary) || type, amount: body.amount != null ? Number(body.amount) : null });
     if (type === 'bid_submitted') store.update('projects', p.id, { stage: 'bid_submitted', bidAmount: a.amount ?? p.bidAmount ?? null, updatedAt: now() });
     if (type === 'contract_awarded') store.update('projects', p.id, { stage: 'awarded', contractValue: a.amount ?? p.contractValue ?? null, updatedAt: now() });

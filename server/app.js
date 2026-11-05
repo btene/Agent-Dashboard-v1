@@ -16,6 +16,8 @@ import { createCrmService } from './intel/crm.js';
 import { createScheduler } from './intel/scheduler.js';
 import { createIntelApi } from './intel/api.js';
 import { seedDemoProjects } from './intel/demo.js';
+import { createReplyService } from './intel/replies.js';
+import { createResearchService } from './intel/research.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -32,9 +34,11 @@ export function createApp({ store = createStore(), seed = true, scheduler: sched
   const emailService = createEmailService({ store, bus, settingsService });
   const documentService = createDocumentService({ store, bus });
   const crmService = createCrmService({ store, bus });
-  const scheduler = createScheduler({ store, bus, settingsService, sourceService, emailService, crmService, autoStart: schedulerOpts.autoStart ?? process.env.NODE_ENV !== 'test', tickMs: schedulerOpts.tickMs });
+  const replyService = createReplyService({ store, bus, settingsService, crmService });
+  const researchService = createResearchService({ store, bus, settingsService, crmService, fetchImpl });
+  const scheduler = createScheduler({ store, bus, settingsService, sourceService, emailService, crmService, replyService, researchService, autoStart: schedulerOpts.autoStart ?? process.env.NODE_ENV !== 'test', tickMs: schedulerOpts.tickMs });
   if (seed && process.env.SEED_DEMO !== 'false') seedDemoProjects({ store, settings: settingsService.get() });
-  const intelApi = createIntelApi({ store, bus, settingsService, sourceService, emailService, documentService, crmService, scheduler });
+  const intelApi = createIntelApi({ store, bus, settingsService, sourceService, emailService, documentService, crmService, scheduler, replyService, researchService });
 
   const app = express();
   app.disable('x-powered-by');
@@ -71,5 +75,5 @@ export function createApp({ store = createStore(), seed = true, scheduler: sched
     app.get(/^\/(?!api\/).*/, (req, res) => res.sendFile(path.join(dist, 'index.html')));
   }
 
-  return { app, store, bus, runService, settingsService, sourceService, emailService, documentService, crmService, scheduler };
+  return { app, store, bus, runService, settingsService, sourceService, emailService, documentService, crmService, scheduler, replyService, researchService };
 }

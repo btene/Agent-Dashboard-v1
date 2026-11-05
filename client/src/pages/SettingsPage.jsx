@@ -60,13 +60,21 @@ export default function SettingsPage() {
           <label className="field">In Automatic mode, send approved emails without a per-email check only when the project scores at least<input type="number" min="0" max="100" value={s.outreach.autoSendMinScore} onChange={(e) => upd('outreach.autoSendMinScore', Number(e.target.value))} /></label>
         </Section>
         <Section id="email" title="Email account" onSave={() => save('email', { email: s.email })} saving={saving === 'email'} saved={saved === 'email'}>
-          <Help>Outreach is sent from your own mailbox through SMTP, so replies land in your normal inbox. Use an app password where your provider offers one (Google Workspace and Microsoft 365 both do). The password is stored on this server only and never shown again.</Help>
+          <Help>Outreach is sent from your own mailbox (SMTP) and replies are read from the same mailbox (IMAP), so every reply lands in your normal inbox and is matched back to the project automatically. The password is stored on this server only and never shown again.</Help>
+          <label className="field">Email provider<select value={s.email.provider || 'other'} onChange={(e) => { const p = e.target.value; const preset = { gmail: { smtpHost: 'smtp.gmail.com', smtpPort: 587, smtpSecure: false, imapHost: 'imap.gmail.com', imapPort: 993 }, microsoft365: { smtpHost: 'smtp.office365.com', smtpPort: 587, smtpSecure: false, imapHost: 'outlook.office365.com', imapPort: 993 }, other: {} }[p]; setS((prev) => ({ ...prev, email: { ...prev.email, provider: p, ...preset } })); }}>
+            <option value="gmail">Google Workspace / Gmail</option><option value="microsoft365">Microsoft 365 / Outlook</option><option value="other">Other (enter servers by hand)</option></select>
+            <span className="hint">{s.email.provider === 'gmail' ? 'Gmail needs 2-Step Verification on, then an App password (Google Account → Security → 2-Step Verification → App passwords). Use that 16-character code as the password below.' : s.email.provider === 'microsoft365' ? 'Microsoft 365 no longer allows a plain password for IMAP (reply tracking), and will switch off password SMTP by default at the end of 2026. Sending may work with your mailbox password if your admin left SMTP AUTH on; reply tracking will not. A Google Workspace mailbox is the simpler choice for this platform.' : 'Ask your email provider for the SMTP (sending) and IMAP (reading) server names.'}</span></label>
           <div className="form-row"><label className="field">Your email address<input value={s.email.address} onChange={(e) => upd('email.address', e.target.value)} /></label><label className="field">SMTP server<input value={s.email.smtpHost} onChange={(e) => upd('email.smtpHost', e.target.value)} placeholder="smtp.gmail.com / smtp.office365.com" /></label></div>
           <div className="form-row"><label className="field">Port<input type="number" value={s.email.smtpPort} onChange={(e) => upd('email.smtpPort', Number(e.target.value))} /></label><label className="check" style={{ marginTop: 26 }}><input type="checkbox" checked={s.email.smtpSecure} onChange={(e) => upd('email.smtpSecure', e.target.checked)} />Use SSL (port 465). Leave off for port 587.</label></div>
           <div className="form-row"><label className="field">Username<input value={s.email.username} onChange={(e) => upd('email.username', e.target.value)} /></label><label className="field">Password / app password<input type="password" value={s.email.password} onChange={(e) => upd('email.password', e.target.value)} placeholder={s.email.hasPassword ? 'saved — enter to replace' : ''} /></label></div>
-          <div className="row"><button className="btn" onClick={async () => { setEmailTest('testing'); try { setEmailTest(await api('/settings/email/test', { method: 'POST' })); } catch (e) { setEmailTest({ ok: false, error: e.message }); } settings.reload(); }}>Test connection (after saving)</button>
-            {emailTest === 'testing' && <span className="small muted">Testing…</span>}{emailTest && emailTest !== 'testing' && <span className={`small ${emailTest.ok ? 'check-ok' : 'check-bad'}`}>{emailTest.ok ? 'Connected successfully' : emailTest.error}</span>}</div>
+          <div className="form-row"><label className="field">IMAP server (for reading replies)<input value={s.email.imapHost || ''} onChange={(e) => upd('email.imapHost', e.target.value)} placeholder="imap.gmail.com" /></label><label className="field">IMAP port<input type="number" value={s.email.imapPort || 993} onChange={(e) => upd('email.imapPort', Number(e.target.value))} /></label></div>
+          <div className="row"><button className="btn" onClick={async () => { setEmailTest('testing'); try { setEmailTest(await api('/settings/email/test', { method: 'POST' })); } catch (e) { setEmailTest({ ok: false, error: e.message }); } settings.reload(); }}>Test sending (SMTP)</button>
+            <button className="btn" onClick={async () => { setEmailTest('testing'); try { const r = await api('/settings/email/test-imap', { method: 'POST' }); setEmailTest(r.ok ? { ok: true, detail: `Inbox opened (${r.messages} messages)` } : r); } catch (e) { setEmailTest({ ok: false, error: e.message }); } settings.reload(); }}>Test reading (IMAP)</button>
+            <button className="btn" onClick={async () => { setEmailTest('testing'); try { const r = await api('/inbox/check', { method: 'POST', body: {} }); setEmailTest({ ok: true, detail: `${r.scanned} messages scanned, ${r.newReplies} new replies matched` }); } catch (e) { setEmailTest({ ok: false, error: e.message }); } }}>Check inbox for replies now</button>
+            {emailTest === 'testing' && <span className="small muted">Testing…</span>}{emailTest && emailTest !== 'testing' && <span className={`small ${emailTest.ok ? 'check-ok' : 'check-bad'}`}>{emailTest.ok ? (emailTest.detail || 'Connected successfully') : emailTest.error}</span>}</div>
+          <Help>Save first, then test. Last SMTP test: {s.email.lastTestOk == null ? 'never' : s.email.lastTestOk ? 'OK' : `failed (${s.email.lastTestError})`} · last IMAP test: {s.email.lastImapTestOk == null ? 'never' : s.email.lastImapTestOk ? 'OK' : `failed (${s.email.lastImapTestError})`} · last inbox check: {s.email.lastInboxCheckAt ? new Date(s.email.lastInboxCheckAt).toLocaleString() : 'never'}.</Help>
         </Section>
+        <ProvidersSection />
         <Section id="environment" title="Live data vs demo data">
           <Help>The live environment holds real records retrieved from external sources. The demo environment holds clearly labelled fictional projects for learning the screens. Demo records can never be emailed, added to the pipeline, or counted on the dashboard.</Help>
           <div className="row">
@@ -80,5 +88,33 @@ export default function SettingsPage() {
         </Section>
       </div>
     </>
+  );
+}
+
+
+function ProvidersSection() {
+  const providers = useApi('/providers');
+  const [form, setForm] = useState({});
+  const [msg, setMsg] = useState({});
+  const list = providers.data || [];
+  async function save(p) { try { await api(`/providers/${p.id}`, { method: 'PATCH', body: { ...(form[p.id] || {}) } }); setForm({ ...form, [p.id]: {} }); setMsg({ ...msg, [p.id]: 'Saved' }); providers.reload(); } catch (e) { setMsg({ ...msg, [p.id]: e.message }); } }
+  async function toggle(p, enabled) { try { await api(`/providers/${p.id}`, { method: 'PATCH', body: { enabled } }); providers.reload(); } catch (e) { setMsg({ ...msg, [p.id]: e.message }); } }
+  async function test(p) { setMsg({ ...msg, [p.id]: 'Testing…' }); try { const r = await api(`/providers/${p.id}/test`, { method: 'POST' }); setMsg({ ...msg, [p.id]: r.ok ? r.detail : r.error }); } catch (e) { setMsg({ ...msg, [p.id]: e.message }); } }
+  return (
+    <Section id="providers" title="Contact research providers">
+      <Help>These licensed services find people at the developers, contractors and owners named on permits. Each can be switched on or off; keys are stored on this server only. You can run the platform with none of them: LinkedIn search links and manual entry always work. See the setup guide for costs and what each one can and cannot do.</Help>
+      {list.map((p) => (
+        <div key={p.id} className="history-item">
+          <div className="row" style={{ justifyContent: 'space-between' }}>
+            <div><strong>{p.name}</strong> <a className="small" href={p.docs} target="_blank" rel="noreferrer">docs ↗</a>{p.enterpriseOnly && <span className="tag" style={{ marginLeft: 6 }}>enterprise agreement required</span>}<div className="small text-2">{p.config?.configured ? 'Credentials saved' : 'No credentials yet'}</div></div>
+            <label className="check small"><input type="checkbox" checked={Boolean(p.config?.enabled)} onChange={(e) => toggle(p, e.target.checked)} />Enabled</label>
+          </div>
+          <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 8, marginTop: 6 }}>
+            {p.credentials.map((c) => <label key={c.key} className="field small">{c.label}<input type="password" placeholder={p.config?.[c.key] === '••••••••' ? 'saved — enter to replace' : ''} value={form[p.id]?.[c.key] || ''} onChange={(e) => setForm({ ...form, [p.id]: { ...(form[p.id] || {}), [c.key]: e.target.value } })} /><span className="hint">{c.help}</span></label>)}
+          </div>
+          <div className="row" style={{ marginTop: 6 }}><button className="btn sm primary" disabled={!form[p.id] || !Object.keys(form[p.id]).length} onClick={() => save(p)}>Save keys</button><button className="btn sm" disabled={!p.config?.configured} onClick={() => test(p)}>Test</button><span className="small muted">{msg[p.id]}</span></div>
+        </div>
+      ))}
+    </Section>
   );
 }

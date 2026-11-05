@@ -5,6 +5,7 @@ import { useApi, useLiveEvents, useThrottled } from '../lib/hooks.js';
 import { usd, num, day, when, STAGE_LABEL, EMAIL_STATUS_LABEL, NOT_YET_VERIFIED } from '../lib/intel.js';
 import { Fact, ProvenanceBadge, ScoreBadge, ScoreBreakdown, SourceLinks, Help } from '../components/intel.jsx';
 import { ErrorBox, Modal } from '../components/ui.jsx';
+import { ConfirmationBadges, ResearchPanel } from '../components/research.jsx';
 
 const FIELD_LABELS = { status: 'Status', statusDate: 'Status date', valuation: 'Valuation', issuedAt: 'Issue date', appliedAt: 'Application date', description: 'Description', address: 'Address', squareFootage: 'Square footage', applicant: 'Applicant / developer', propertyOwner: 'Property owner', generalContractor: 'General contractor', permitType: 'Permit type', zoning: 'Zoning', dwellingUnits: 'Dwelling units', heightFt: 'Height (ft)', constructionType: 'Construction type' };
 const fmt = (f, v) => (v == null ? NOT_YET_VERIFIED : /At$|Date$|Deadline$/.test(f) ? day(v) : f === 'valuation' ? usd(v) : String(v));
@@ -97,6 +98,7 @@ export default function ProjectDetailPage() {
         <div style={{ minWidth: 0 }}>
           <div className="row"><ScoreBadge score={p.score?.total} tier={p.tier} /><h1 style={{ overflowWrap: 'anywhere' }}>{p.displayName}</h1>{p.isDemo && <span className="tag env-demo">DEMO — fictional</span>}</div>
           <p>{p.display.address} · <ProvenanceBadge kind={p.recordClass} /> · Stage: <strong>{STAGE_LABEL[p.stage]}</strong></p>
+          <div style={{ marginTop: 6 }}><ConfirmationBadges c={p.confirmations} /></div>
         </div>
         <div className="stack" style={{ alignItems: 'flex-end', gap: 8 }}>
           <SourceLinks project={p} />
@@ -113,6 +115,12 @@ export default function ProjectDetailPage() {
           <div className="row"><span className={`status-pill ${vClass}`}>{v.status === 'verified' ? 'Verified against source' : v.status === 'demo' ? 'Demo — nothing to verify' : v.status === 'pending' ? 'Source unavailable — verification pending' : v.status === 'not_found' ? 'Not found at source — needs review' : v.status}</span>
             <span className="small text-2">Source timestamp: {v.sourceTimestamp ? day(v.sourceTimestamp) : 'not published'} · Retrieved: {when(v.retrievedAt)} · Last checked: {when(v.lastCheckedAt)}</span></div>
           <span className="small muted">Source: {p.sourceName}</span>
+        </div>
+        <div className="facts" style={{ marginTop: 10 }}>
+          <Fact label="Original source" value={p.sourceName}><span>{p.sourceName}{p.sourceRecordUrl ? <> — <a href={p.sourceRecordUrl} target="_blank" rel="noreferrer">record link ↗</a></> : ' — no direct record link (file import)'}</span></Fact>
+          <Fact label="Verification status" value={v.status === 'verified' ? `Verified ${when(v.lastCheckedAt)}` : v.status} />
+          <Fact label="Contact information" value={p.confirmations.contact.label}><span title={p.confirmations.contact.detail}>{p.confirmations.contact.label} <span className="muted">— {p.confirmations.contact.detail}</span></span></Fact>
+          <Fact label="Landscaping scope" value={p.confirmations.landscapeScope.label}><span title={p.confirmations.landscapeScope.detail}>{p.confirmations.landscapeScope.label} <span className="muted">— {p.confirmations.landscapeScope.detail}</span></span></Fact>
         </div>
         {v.error && <div className="small" style={{ marginTop: 6, color: 'var(--critical-text)' }}>{v.error}</div>}
         {verifyResult && (
@@ -170,9 +178,13 @@ export default function ProjectDetailPage() {
             <div className="facts" style={{ marginTop: 12 }}>
               <Fact label="Project type (estimate)" value={`${p.classification.projectTypeLabel} — ${Math.round(p.classification.confidence * 100)}% confidence`} />
               <Fact label="Landscape likelihood (estimate)" value={{ documented: 'Landscape work mentioned in the record', likely: 'Likely — site work implied', unknown: 'Unknown — nothing in the record' }[p.classification.landscapeLikelihood]} />
+              <Fact label="Genuine landscaping opportunity? (estimate)" value={{ strong: 'Strong — likely needs new landscape installation', possible: 'Possible — needs research', unlikely: 'Unlikely — general construction permit' }[p.classification.landscapeRelevance] || 'Not assessed'} />
+              <Fact label="Opportunity type (estimate)" value={{ construction: 'Landscape construction', maintenance: 'Recurring maintenance', both: 'Construction now, maintenance later', unlikely: 'Neither indicated' }[p.classification.opportunityType] || 'Not assessed'} />
             </div>
-            <ul className="small text-2" style={{ margin: '8px 0 0', paddingLeft: 18 }}>{p.classification.reasons.map((r, i) => <li key={i}>{r}</li>)}{p.classification.landscapeSignals.map((r, i) => <li key={`l${i}`}>{r}</li>)}</ul>
+            <ul className="small text-2" style={{ margin: '8px 0 0', paddingLeft: 18 }}>{p.classification.reasons.map((r, i) => <li key={i}>{r}</li>)}{(p.classification.relevanceReasons || []).map((r, i) => <li key={`r${i}`}>{r}</li>)}{p.classification.landscapeSignals.map((r, i) => <li key={`l${i}`}>{r}</li>)}</ul>
           </div>
+
+          {!p.isDemo && <ResearchPanel projectId={p.id} />}
 
           <div className="card card-pad">
             <h2>Why this score: {p.score.total} / 100</h2>
@@ -215,7 +227,7 @@ export default function ProjectDetailPage() {
               <div key={c.id} className="history-item">
                 <div className="row"><strong>{c.firstName} {c.lastName}</strong><span className="tag">{c.role?.replace(/_/g, ' ')}</span><ProvenanceBadge kind={c.provenance} compact /></div>
                 <div className="small text-2">{[c.title, c.company].filter(Boolean).join(' · ')}</div>
-                <div className="small">{c.email || <span className="muted">no email</span>}{c.phone ? ` · ${c.phone}` : ''}</div>
+                <div className="small">{c.email || <span className="muted">no email</span>}{c.emailVerification && <span className={c.emailVerification.status === 'valid' ? 'check-ok' : 'check-bad'}> ({c.emailVerification.status === 'valid' ? 'verified' : c.emailVerification.status})</span>}{c.phone ? ` · ${c.phone}` : ''}{c.linkedinUrl && <> · <a href={c.linkedinUrl} target="_blank" rel="noreferrer">LinkedIn{c.linkedinVerifiedAt ? ' ✓' : ''}</a></>}{c.contactScore && <> · score {c.contactScore.total}</>}</div>
                 {c.sourceNote && <div className="small muted">Source: {c.sourceNote}</div>}
                 <button className="btn sm" style={{ marginTop: 6 }} disabled={!c.email || drafting || p.isDemo} onClick={() => draft(c.id)}>Draft email</button>
               </div>
