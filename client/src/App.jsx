@@ -1,4 +1,4 @@
-import { Navigate, Route, Routes } from 'react-router-dom';
+import { Route, Routes } from 'react-router-dom';
 import Layout from './components/Layout.jsx';
 import AgentsPage from './pages/AgentsPage.jsx';
 import AgentDetailPage from './pages/AgentDetailPage.jsx';
@@ -7,18 +7,38 @@ import RunDetailPage from './pages/RunDetailPage.jsx';
 import AnalyticsPage from './pages/AnalyticsPage.jsx';
 import ConnectionsPage from './pages/ConnectionsPage.jsx';
 import LinkedDashboardPage from './pages/LinkedDashboardPage.jsx';
+import HomePage from './pages/HomePage.jsx';
+import ProjectsPage from './pages/ProjectsPage.jsx';
+import ProjectDetailPage from './pages/ProjectDetailPage.jsx';
+import AutomationsPage from './pages/AutomationsPage.jsx';
+import IntegrationsPage from './pages/IntegrationsPage.jsx';
+import AdminPage from './pages/AdminPage.jsx';
+import OutreachPage from './pages/OutreachPage.jsx';
+import CrmPage from './pages/CrmPage.jsx';
+import DocumentsPage from './pages/DocumentsPage.jsx';
+import OnboardingPage from './pages/OnboardingPage.jsx';
+import SettingsPage from './pages/SettingsPage.jsx';
 import { useLiveEvents } from './lib/hooks.js';
 import { postToParent } from './lib/bridge.js';
 
 export default function App() {
-  // Forward run outcomes to a parent dashboard when embedded.
   useLiveEvents((e) => {
-    if (['run.succeeded', 'run.failed', 'run.cancelled', 'run.started'].includes(e.type)) postToParent(e.type, e.data);
+    if (['run.succeeded', 'run.failed', 'run.cancelled', 'run.started', 'project.created', 'email.sent'].includes(e.type)) postToParent(e.type, e.data);
   });
   return (
     <Layout>
       <Routes>
-        <Route path="/" element={<Navigate to="/agents" replace />} />
+        <Route path="/" element={<HomePage />} />
+        <Route path="/setup" element={<OnboardingPage />} />
+        <Route path="/projects" element={<ProjectsPage />} />
+        <Route path="/projects/:id" element={<ProjectDetailPage />} />
+        <Route path="/automations" element={<AutomationsPage />} />
+        <Route path="/integrations" element={<IntegrationsPage />} />
+        <Route path="/admin" element={<AdminPage />} />
+        <Route path="/outreach" element={<OutreachPage />} />
+        <Route path="/crm" element={<CrmPage />} />
+        <Route path="/documents" element={<DocumentsPage />} />
+        <Route path="/settings" element={<SettingsPage />} />
         <Route path="/agents" element={<AgentsPage />} />
         <Route path="/agents/:id" element={<AgentDetailPage />} />
         <Route path="/runs" element={<RunsPage />} />

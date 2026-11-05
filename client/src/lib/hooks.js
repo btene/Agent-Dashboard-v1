@@ -21,7 +21,8 @@ export function useApi(path) {
 // One shared EventSource for the whole app; components subscribe to it.
 const listeners = new Set();
 let source = null;
-const EVENT_TYPES = ['run.created', 'run.started', 'run.log', 'run.updated', 'run.succeeded', 'run.failed', 'run.cancelled', 'runs.cleared', 'agent.created', 'agent.updated', 'agent.deleted'];
+const EVENT_TYPES = ['run.created', 'run.started', 'run.log', 'run.updated', 'run.succeeded', 'run.failed', 'run.cancelled', 'runs.cleared', 'agent.created', 'agent.updated', 'agent.deleted',
+  'project.created', 'project.updated', 'project.verified', 'project.stage', 'source.run', 'automation.updated', 'automations.changed', 'email.drafted', 'email.approved', 'email.sent', 'document.uploaded', 'contact.saved', 'settings.updated', 'crm.synced'];
 
 function ensureSource() {
   if (source) return;

@@ -4,7 +4,13 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 
-const COLLECTIONS = ['agents', 'runs', 'dashboards', 'webhooks'];
+const COLLECTIONS = [
+  'agents', 'runs', 'dashboards', 'webhooks',
+  // Construction-intelligence platform
+  'projects', 'projectHistory', 'verifications', 'sources', 'sourceRuns',
+  'companies', 'contacts', 'activities', 'emails', 'documents', 'reminders',
+  'jobRuns', 'settings', 'imports',
+];
 const MAX_RUNS = Number(process.env.MAX_RUNS || 20000);
 
 export function createStore({ dataDir = process.env.DATA_DIR || 'data', persist = true } = {}) {

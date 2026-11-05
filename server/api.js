@@ -29,11 +29,18 @@ function safeEqual(a, b) {
   return ab.length === bb.length && crypto.timingSafeEqual(ab, bb);
 }
 
+/**
+ * API key auth with roles. DASHBOARD_API_KEY grants the owner role;
+ * DASHBOARD_STAFF_KEY and DASHBOARD_VIEWER_KEY grant narrower roles used by
+ * the document library and approval endpoints. With no keys set (local use),
+ * every request is the owner.
+ */
 export function requireApiKey(req, res, next) {
-  const key = process.env.DASHBOARD_API_KEY;
-  if (!key) return next();
+  const keys = [['owner', process.env.DASHBOARD_API_KEY], ['staff', process.env.DASHBOARD_STAFF_KEY], ['viewer', process.env.DASHBOARD_VIEWER_KEY]].filter(([, k]) => k);
+  if (!keys.length) { req.role = 'owner'; return next(); }
   const header = req.get('authorization')?.replace(/^Bearer\s+/i, '') || req.get('x-api-key') || req.query.key;
-  if (header && safeEqual(header, key)) return next();
+  const match = header && keys.find(([, k]) => safeEqual(header, k));
+  if (match) { req.role = match[0]; return next(); }
   res.status(401).json({ error: 'Missing or invalid API key' });
 }
 
@@ -62,7 +69,7 @@ function runSummary(r) {
   return { ...rest, input: input?.slice(0, 200), outputPreview: output?.slice(0, 200) ?? null };
 }
 
-export function createApi({ store, bus, runService }) {
+export function createApi({ store, bus, runService, intelApi }) {
   const api = express.Router();
   api.use(express.json({ limit: '2mb' }));
 
@@ -89,6 +96,9 @@ export function createApi({ store, bus, runService }) {
       api: `${base}/api/v1`,
       events: `${base}/api/v1/events`,
       pages: [
+        { id: 'home', title: 'Business dashboard', path: '/', embed: `${base}/?embed=1` },
+        { id: 'projects', title: 'Projects', path: '/projects', embed: `${base}/projects?embed=1` },
+        { id: 'automations', title: 'Automation Control Center', path: '/automations', embed: `${base}/automations?embed=1` },
         { id: 'agents', title: 'Agents', path: '/agents', embed: `${base}/agents?embed=1` },
         { id: 'analytics', title: 'Analytics', path: '/analytics', embed: `${base}/analytics?embed=1` },
         { id: 'runs', title: 'Run history', path: '/runs', embed: `${base}/runs?embed=1` },
@@ -105,6 +115,7 @@ export function createApi({ store, bus, runService }) {
   });
 
   api.use(requireApiKey);
+  if (intelApi) api.use(intelApi);
 
   api.get('/runners', (req, res) => res.json(describeRunners().map((r) => ({
     ...r,
