@@ -22,7 +22,12 @@ export const ROLES = ['viewer', 'staff', 'owner'];
 export const roleRank = (r) => Math.max(0, ROLES.indexOf(r || 'viewer'));
 export const canAccess = (role, doc) => roleRank(role) >= roleRank(doc.minRole);
 
-const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
+// Vercel Functions accept request bodies up to 4.5 MB, so uploads are capped lower there.
+export const MAX_UPLOAD_BYTES = process.env.VERCEL ? 4 * 1024 * 1024 : 25 * 1024 * 1024;
+
+// Where encrypted files live: a folder on disk, or the Postgres `als.files` table.
+let fileStore = null;
+export function setFileStore(fs_) { fileStore = fs_; }
 
 function dataDir() { return path.resolve(process.env.DATA_DIR || 'data'); }
 
@@ -30,6 +35,7 @@ function dataDir() { return path.resolve(process.env.DATA_DIR || 'data'); }
 export function encryptionKey() {
   const env = process.env.DOCUMENT_ENCRYPTION_KEY;
   if (env) return crypto.createHash('sha256').update(env).digest();
+  if (process.env.VERCEL || fileStore) throw Object.assign(new Error('DOCUMENT_ENCRYPTION_KEY is not set. Add it in Vercel → Project → Settings → Environment Variables, then redeploy.'), { status: 500 });
   const keyFile = path.join(dataDir(), 'documents', '.key');
   if (fs.existsSync(keyFile)) return Buffer.from(fs.readFileSync(keyFile, 'utf8').trim(), 'hex');
   fs.mkdirSync(path.dirname(keyFile), { recursive: true });
@@ -38,18 +44,30 @@ export function encryptionKey() {
   return key;
 }
 
-export function encryptToFile(buffer, filePath) {
+export function encrypt(buffer) {
   const key = encryptionKey();
   const iv = crypto.randomBytes(12);
   const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
   const enc = Buffer.concat([cipher.update(buffer), cipher.final()]);
-  const tag = cipher.getAuthTag();
+  return Buffer.concat([iv, cipher.getAuthTag(), enc]);
+}
+
+export function encryptToFile(buffer, filePath) {
+  const blob = encrypt(buffer);
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
-  fs.writeFileSync(filePath, Buffer.concat([iv, tag, enc]), { mode: 0o600 });
+  fs.writeFileSync(filePath, blob, { mode: 0o600 });
+}
+
+async function storeEncrypted(id, buffer) {
+  if (fileStore) { await fileStore.put(id, encrypt(buffer)); return `db:als.files/${id}`; }
+  const storagePath = path.join(dataDir(), 'documents', `${id}.enc`);
+  encryptToFile(buffer, storagePath);
+  return storagePath;
 }
 
 export async function readDocumentBuffer(doc) {
-  const blob = fs.readFileSync(doc.storagePath);
+  const blob = String(doc.storagePath).startsWith('db:') ? await fileStore.get(doc.id) : fs.readFileSync(doc.storagePath);
+  if (!blob) throw Object.assign(new Error('Stored file not found'), { status: 404 });
   const key = encryptionKey();
   const decipher = crypto.createDecipheriv('aes-256-gcm', key, blob.subarray(0, 12));
   decipher.setAuthTag(blob.subarray(12, 28));
@@ -143,12 +161,11 @@ export function createDocumentService({ store, bus }) {
 
   async function upload({ buffer, filename, mimetype, type = 'other', title, uploadedBy = 'owner' }) {
     if (!buffer?.length) throw Object.assign(new Error('Empty upload'), { status: 400 });
-    if (buffer.length > MAX_UPLOAD_BYTES) throw Object.assign(new Error('File is larger than 25 MB'), { status: 413 });
+    if (buffer.length > MAX_UPLOAD_BYTES) throw Object.assign(new Error(`File is larger than ${Math.round(MAX_UPLOAD_BYTES / 1048576)} MB`), { status: 413 });
     const typeDef = DOCUMENT_TYPES.find((t) => t.id === type) || DOCUMENT_TYPES.at(-1);
     const id = store.newId('doc');
     const safeName = path.basename(filename || 'upload').replace(/[^\w.\- ]+/g, '_');
-    const storagePath = path.join(dataDir(), 'documents', `${id}.enc`);
-    encryptToFile(buffer, storagePath);
+    const storagePath = await storeEncrypted(id, buffer);
     const { text, pages, method, error } = await extractText(buffer, mimetype, safeName);
     const extracted = extractFacts(text, typeDef.id);
     const doc = store.insert('documents', {
@@ -187,7 +204,8 @@ export function createDocumentService({ store, bus }) {
   function remove(id) {
     const doc = store.get('documents', id);
     if (!doc) throw Object.assign(new Error('Document not found'), { status: 404 });
-    try { fs.unlinkSync(doc.storagePath); } catch { /* already gone */ }
+    if (String(doc.storagePath).startsWith('db:')) fileStore?.remove(doc.id).catch(() => {});
+    else { try { fs.unlinkSync(doc.storagePath); } catch { /* already gone */ } }
     store.remove('documents', id);
   }
 

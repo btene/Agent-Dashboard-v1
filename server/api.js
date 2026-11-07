@@ -69,7 +69,7 @@ function runSummary(r) {
   return { ...rest, input: input?.slice(0, 200), outputPreview: output?.slice(0, 200) ?? null };
 }
 
-export function createApi({ store, bus, runService, intelApi }) {
+export function createApi({ store, bus, runService, intelApi, platform = {} }) {
   const api = express.Router();
   api.use(express.json({ limit: '2mb' }));
 
@@ -78,6 +78,7 @@ export function createApi({ store, bus, runService, intelApi }) {
     name: process.env.DASHBOARD_NAME || 'Agent Dashboard',
     version: API_VERSION,
     authRequired: Boolean(process.env.DASHBOARD_API_KEY),
+    platform: { serverless: Boolean(platform.serverless), storage: platform.storage || 'file', maxUploadBytes: platform.maxUploadBytes || null, setupError: platform.setupError || null },
     features: {
       commandRunner: commandRunnerEnabled(),
       claude: Boolean(process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN),
@@ -300,6 +301,9 @@ export function createApi({ store, bus, runService, intelApi }) {
   // ---- Live events (Server-Sent Events) -----------------------------------
   // EventSource can't send headers, so the API key may be passed as ?key=.
   api.get('/events', (req, res) => {
+    // Serverless functions cannot hold a live stream open between instances.
+    // 204 tells the browser's EventSource to stop reconnecting; pages refresh on navigation instead.
+    if (platform.serverless) return res.status(204).end();
     res.set({ 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive', 'x-accel-buffering': 'no' });
     res.flushHeaders();
     res.write(`event: hello\ndata: ${JSON.stringify(meta())}\n\n`);

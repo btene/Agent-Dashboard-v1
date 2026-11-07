@@ -71,26 +71,30 @@ Each source's newest record date is checked on every run; a source that stops ad
 
 ## Quick start
 
+**Production (Vercel + Supabase):** follow `docs/DEPLOYMENT.md`. Vercel serves the built website from `dist/`, runs
+`api/index.js` as the server function, and calls `/api/v1/cron/daily` once a day (`vercel.json`). All data and
+encrypted documents are stored in Supabase Postgres (`POSTGRES_URL`, added automatically by the Vercel ↔ Supabase
+integration) in a private `als` schema with row-level security enabled.
+
+**Local development:**
+
 ```bash
 npm install
-npm run dev          # API on :8787, UI on http://localhost:5173
+npm run dev          # API on :8787, UI on http://localhost:5173 (data in ./data/db.json)
 ```
 
-Production:
+On first launch the UI opens the guided setup. Under *Integrations*, press **Retrieve now** on the live sources to pull real
+permits. If your machine reaches the internet through an HTTPS proxy, start the server with `NODE_USE_ENV_PROXY=1`.
+To develop against Postgres locally, set `POSTGRES_URL` before `npm run dev`.
 
-```bash
-npm run build && npm start
-```
-
-On first launch the UI opens the guided setup. Under *Integrations*, press **Retrieve now** on the City of Los Angeles source to pull real permits (takes a few seconds). If the server reaches the internet through an HTTPS proxy, start it with `NODE_USE_ENV_PROXY=1`.
-
-Outgoing email uses your own mailbox over SMTP (`Settings → Email account`, e.g. Google Workspace app password). Nothing is sent until an email is approved, and automated sending stays off until you switch it on in the Control Center.
+Outgoing email uses your own mailbox over SMTP (`Settings → Email account`, e.g. Google Workspace app password). Nothing
+is sent until an email is approved, and automated sending stays off until you switch it on in the Control Center.
 
 ### Security
 
 * Set `DASHBOARD_API_KEY` (owner) before exposing the site; optional `DASHBOARD_STAFF_KEY` / `DASHBOARD_VIEWER_KEY` give narrower roles. Document access is restricted by role (W-9s, registrations and qualification packages are owner-only).
 * Uploaded documents are encrypted at rest with AES-256-GCM (`DOCUMENT_ENCRYPTION_KEY`, or an auto-generated key in the data folder).
-* Storage is the JSON store in `DATA_DIR` plus encrypted files; back up that folder. The store module is the single place to swap in Postgres/SQLite.
+* Storage: Supabase Postgres in production (`server/persistence/postgres.js`), a JSON file in `DATA_DIR` for local development. On Vercel the platform refuses to start without a database, `DASHBOARD_API_KEY` and `DOCUMENT_ENCRYPTION_KEY`, and shows what is missing.
 
 ### Tests
 

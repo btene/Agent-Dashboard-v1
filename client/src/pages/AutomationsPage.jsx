@@ -23,7 +23,9 @@ export default function AutomationsPage() {
   async function runNow(id) { setBusy(id); await call(`/automations/${id}/run`); setBusy(null); }
 
   const d = data.data;
+  const meta = useApi('/meta');
   if (!d) return <ErrorBox error={data.error} />;
+  const cron = meta.data?.platform?.serverless;
   const sendingOn = d.items.find((a) => a.id === 'email_sending')?.config?.enabled;
 
   return (
@@ -51,6 +53,7 @@ export default function AutomationsPage() {
         {d.mode === 'automatic' && sendingOn && <div className="warn-box small" style={{ marginTop: 12 }}>Approved emails for projects scoring at least the auto-send threshold (Settings → Outreach) will be sent without a per-email check.</div>}
       </div>
 
+      {cron && <div className="notice small" style={{ marginBottom: 16 }}>This site runs on Vercel's free plan, which runs scheduled work <strong>once a day</strong> (around 6–7 am Pacific). Every automation that is switched on runs in that daily pass; the 6- and 12-hour choices behave like Daily. Use <strong>Run now</strong> any time you want an update sooner.</div>}
       <div className="card">
         <div className="card-header"><div><h2>Automations</h2><p>Each one is independent. "Run now" works even when the schedule is off or everything is paused.</p></div></div>
         {d.items.map((a) => (

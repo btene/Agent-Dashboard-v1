@@ -111,6 +111,7 @@ export default function Layout({ children }) {
         </>
       )}
       <main className="main">
+        {!embed && meta.data?.platform?.setupError && <div className="paused-banner"><strong>Setup needed:</strong> {meta.data.platform.setupError}</div>}
         {!embed && <DemoBanner environment={environment} />}
         {!embed && paused && <div className="paused-banner">All automations are paused. Nothing will run until you resume them in the <Link to="/automations">Automation Control Center</Link>.</div>}
         {children}

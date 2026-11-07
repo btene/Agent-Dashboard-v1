@@ -49,7 +49,10 @@ export function useEnvironment() {
 }
 
 /** Upload a file as the raw request body (documents and imports). */
+let maxUpload = null;
 export async function uploadFile(path, file, params = {}) {
+  if (maxUpload === null) { try { maxUpload = (await (await fetch('/api/v1/meta')).json())?.platform?.maxUploadBytes || 0; } catch { maxUpload = 0; } }
+  if (maxUpload && file.size > maxUpload) throw new Error(`"${file.name}" is ${(file.size / 1048576).toFixed(1)} MB. The limit here is ${Math.round(maxUpload / 1048576)} MB per file. Compress the PDF (for example with your PDF app's "reduce file size") and try again.`);
   const q = new URLSearchParams({ filename: file.name, mimetype: file.type || 'application/octet-stream', ...params });
   const headers = { 'x-agent-dashboard-client': 'ui', 'content-type': file.type || 'application/octet-stream' };
   try { const key = localStorage.getItem('agentDashboard.apiKey'); if (key) headers.authorization = `Bearer ${key}`; } catch { /* ignore */ }

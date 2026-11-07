@@ -10,19 +10,20 @@ or skipped.
 
 | What | Why | Where to get it | Estimated cost |
 |---|---|---|---|
-| **Render.com Starter web service + 2 GB disk** (required) | Keeps the website and automations running 24/7 at a permanent address, with your data on a persistent disk. Free tiers sleep when idle and cannot keep a disk. | https://render.com/pricing — follow `docs/DEPLOYMENT.md` | **$7/mo + $0.50/mo disk ≈ $7.50/mo** |
-| **GitHub account** (required) | Render deploys from the repository. | https://github.com | Free |
+| **Vercel Pro** (required) | Hosts the website and server code, runs the daily automations. Vercel's terms restrict the free Hobby plan to personal, non-commercial use, so a business tool needs Pro. Pro includes $20 of usage credit, which this platform will not exceed at normal use. | https://vercel.com/pricing — your existing account (`btene`) | **$20/mo** |
+| **Supabase Free** via Vercel → Storage (required) | Postgres database for all data and encrypted documents. Created and connected from inside Vercel; no separate sign-up or password to copy. | Vercel project → Storage → Create Database → Supabase | **$0** (500 MB database). Optional Supabase Pro **$25/mo** adds automatic daily backups. |
+| **GitHub account** (required) | Vercel deploys from the repository. | https://github.com | Free |
 | **Google Workspace mailbox** (recommended for email) | Outreach is sent from your own address (SMTP) and replies are read back (IMAP). Google still supports an *App password* for this; Microsoft 365 no longer allows password sign-in for IMAP, so reply tracking cannot read an Outlook mailbox without an OAuth integration. | https://workspace.google.com/pricing — Business Starter | **$7/user/mo** (annual) or $8.40 monthly |
-| **City of Los Angeles open data** (already connected) | Live building permits. | https://data.lacity.org/d/pi9x-tg5x — optional free app token at https://data.lacity.org/profile/edit/developer_settings | **Free** |
+| **City of Los Angeles open data** (already connected) | Live building permits. | https://data.lacity.org/d/pi9x-tg5x — optional free app token | **Free** |
 
-Credentials to keep safe: `DASHBOARD_API_KEY` (website login), `DOCUMENT_ENCRYPTION_KEY`
-(protects uploaded licenses/insurance; cannot be recovered if lost), the Gmail App password.
+Secrets to keep in a password manager: `DASHBOARD_API_KEY` (website login), `DOCUMENT_ENCRYPTION_KEY`
+(protects uploaded licenses/insurance; cannot be recovered if lost), `CRON_SECRET`, and the Gmail App password.
 
 ## Project data beyond the City of Los Angeles
 
 | What | What it gives you | Access method | Estimated cost |
 |---|---|---|---|
-| **Live government sources added in this phase** — Riverside County PLUS (incl. landscape permits), City of Santa Monica, County of Ventura weekly reports, City of Santa Barbara (stale since Sep 2025) | Automatic retrieval, same as the City of LA. | Already connected; no account needed. If you deploy elsewhere, the server must be allowed to reach `gis.countyofriverside.us`, `data.santamonica.gov`, `rmadocs.venturacounty.gov` and `gisportal.santabarbaraca.gov`. | **Free** |
+| **Live government sources added in this phase** — Riverside County PLUS (incl. landscape permits), City of Santa Monica, County of Ventura weekly reports, City of Santa Barbara (stale since Sep 2025) | Automatic retrieval, same as the City of LA. | Already connected; no account needed. On Vercel no network settings are needed. Elsewhere, the server must be allowed to reach `gis.countyofriverside.us`, `data.santamonica.gov`, `rmadocs.venturacounty.gov` and `gisportal.santabarbaraca.gov`. | **Free** |
 | **County/city permit portals without an API** (Santa Barbara County, San Bernardino city & county, City of Riverside, Ventura County portal, Orange County, LA County EPIC-LA) | Public permit records for the rest of the territory. | Web portal search → export → import into the platform. See `Integrations → Manual imports`. | **Free** (your time) |
 | **ConstructConnect Project Intelligence — Professional** | Pre-bid and bidding commercial projects with owner, GC, architect and contacts, plus Excel/CSV export (export is *not* in the Starter tier). Records import with a link back to the ConstructConnect project page. | https://www.constructconnect.com/pricing — subscribe, then Export to Excel → Detailed View → Import here. API keys are issued by apisupport@constructconnect.com under an API rider (not self-serve). | **$199/mo per market** (annual contract); Starter $129/mo has no export; Premium from $10,000/yr |
 | **Dodge Construction Network** | Similar project leads; export to XLSX/CSV; API is sales-led, OAuth 2.0, internal use only. | https://www.construction.com/ (quote) | Custom quote; pricing not published |
@@ -67,7 +68,8 @@ last verified.
 
 | Setup | Monthly |
 |---|---|
-| Minimum (hosting + Google Workspace, LA City data, manual research via LinkedIn links) | about **$15** |
-| Plus Hunter.io Starter (yearly billing) | about **$50** |
-| Or plus Apollo.io Basic, if your key passes the Test button | about **$65** |
-| Plus ConstructConnect Professional for one market | about **$250–$300** |
+| Minimum (Vercel Pro + Supabase Free + Google Workspace; live permit data; manual research via LinkedIn links) | about **$27** |
+| Plus Hunter.io Starter (yearly billing) | about **$61** |
+| Or plus Apollo.io Basic, if your key passes the Test button | about **$76** |
+| Plus Supabase Pro for automatic daily backups | add **$25** |
+| Plus ConstructConnect Professional for one market | add **$199** |

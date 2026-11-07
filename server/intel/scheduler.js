@@ -6,7 +6,7 @@ import { POLL_OPTIONS } from './sources.js';
 
 const INTERVAL_MS = Object.fromEntries(POLL_OPTIONS.map((o) => [o.id, o.hours ? o.hours * 3_600_000 : null]));
 
-export function createScheduler({ store, bus, settingsService, sourceService, emailService, crmService, replyService, researchService, tickMs = 60_000, autoStart = true }) {
+export function createScheduler({ store, bus, settingsService, sourceService, emailService, crmService, replyService, researchService, tickMs = 60_000, autoStart = true, cronMode = false }) {
   const state = Object.fromEntries(AUTOMATIONS.map((a) => [a.id, { id: a.id, status: 'idle', lastRunAt: null, lastSuccessAt: null, lastError: null, nextRunAt: null, lastSummary: null, running: false }]));
   let timer = null;
   const now = () => new Date().toISOString();
@@ -162,7 +162,36 @@ export function createScheduler({ store, bus, settingsService, sourceService, em
     }
   }
 
+  /** Rebuild last-run status from saved job runs (other instances may have run them). */
+  function hydrate() {
+    const latest = {};
+    for (const r of store.list('jobRuns')) {
+      const a = (latest[r.automationId] ||= {});
+      if (!a.last || r.finishedAt > a.last.finishedAt) a.last = r;
+      if (r.ok && (!a.ok || r.finishedAt > a.ok.finishedAt)) a.ok = r;
+    }
+    for (const [id, a] of Object.entries(latest)) {
+      if (!state[id] || state[id].running) continue;
+      if (!state[id].lastRunAt || a.last.finishedAt > state[id].lastRunAt) Object.assign(state[id], { lastRunAt: a.last.finishedAt, status: a.last.ok ? 'ok' : 'error', lastError: a.last.error, lastSummary: a.last.summary });
+      if (a.ok && (!state[id].lastSuccessAt || a.ok.finishedAt > state[id].lastSuccessAt)) state[id].lastSuccessAt = a.ok.finishedAt;
+    }
+  }
+
+  // Vercel Hobby runs the cron once a day (at some point within the scheduled hour).
+  const CRON_HOUR_UTC = 14;
+  function nextCronRun() {
+    const d = new Date(); d.setUTCMinutes(0, 0, 0); d.setUTCHours(CRON_HOUR_UTC);
+    if (d.getTime() <= Date.now()) d.setUTCDate(d.getUTCDate() + 1);
+    return d.toISOString();
+  }
+
   function computeNext(id, settings) {
+    if (cronMode) {
+      const conf = settings.automations[id];
+      if (settings.pauseAll || !conf?.enabled || settings.mode === 'manual' || conf.interval === 'manual') return null;
+      if (id === 'email_sending' && settings.mode !== 'automatic') return null;
+      return nextCronRun();
+    }
     const conf = settings.automations[id];
     if (settings.pauseAll || !conf?.enabled || settings.mode === 'manual') return null;
     if (id === 'email_sending' && settings.mode !== 'automatic') return null;
@@ -184,7 +213,26 @@ export function createScheduler({ store, bus, settingsService, sourceService, em
     }
   }
 
+  /** Run every automation that is due, one after another (used by the daily Vercel Cron). */
+  async function runDue({ budgetMs = 270_000 } = {}) {
+    hydrate();
+    const settings = settingsService.get();
+    const started = Date.now();
+    const results = [];
+    for (const a of AUTOMATIONS) {
+      if (Date.now() - started > budgetMs) { results.push({ id: a.id, skipped: 'Time budget for this run used up; will run next time.' }); continue; }
+      const last = state[a.id].lastRunAt ? Date.parse(state[a.id].lastRunAt) : 0;
+      if (cronMode && Date.now() - last < 20 * 3_600_000) { results.push({ id: a.id, skipped: 'Already ran in the last 20 hours.' }); continue; }
+      if (settings.automations[a.id]?.interval === 'manual') { results.push({ id: a.id, skipped: 'Set to manual.' }); continue; }
+      const r = await run(a.id, { trigger: 'schedule' });
+      results.push({ id: a.id, ...(r.skipped ? { skipped: r.skipped } : { status: r.status, summary: r.lastSummary, error: r.lastError }) });
+    }
+    await store.flush();
+    return results;
+  }
+
   function snapshot() {
+    hydrate();
     const settings = settingsService.get();
     return AUTOMATIONS.map((a) => ({ ...a, ...state[a.id], nextRunAt: computeNext(a.id, settings), config: settings.automations[a.id], recentRuns: store.list('jobRuns').filter((r) => r.automationId === a.id).slice(-5).reverse() }));
   }
@@ -193,5 +241,5 @@ export function createScheduler({ store, bus, settingsService, sourceService, em
   function stop() { clearInterval(timer); timer = null; }
   if (autoStart) start();
 
-  return { run, tick, snapshot, start, stop, jobs: Object.keys(jobs) };
+  return { run, runDue, tick, snapshot, start, stop, hydrate, cronMode, jobs: Object.keys(jobs) };
 }
