@@ -17,7 +17,7 @@ export const NOT_YET_VERIFIED = 'Not yet verified';
 export const SOURCE_FIELDS = [
   'permitNumber', 'projectName', 'address', 'streetAddress', 'city', 'county', 'state', 'zip', 'description', 'permitType', 'permitSubType',
   'useDescription', 'zoning', 'constructionType', 'appliedAt', 'issuedAt', 'status', 'statusDate', 'valuation', 'squareFootage',
-  'dwellingUnits', 'heightFt', 'lat', 'lon', 'applicant', 'propertyOwner', 'generalContractor', 'propertyManager', 'constructionManager', 'architect', 'bidDeadline', 'schedule',
+  'dwellingUnits', 'heightFt', 'lat', 'lon', 'apn', 'applicant', 'propertyOwner', 'generalContractor', 'propertyManager', 'constructionManager', 'architect', 'bidDeadline', 'schedule',
   'landscapeScopeDocumented', 'sourceRecordUrl', 'sourcePortalUrl', 'agencyLookupUrl', 'sourceUpdatedAt',
 ];
 

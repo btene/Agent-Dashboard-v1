@@ -27,7 +27,7 @@ const RULES = [
   ['commercial', /\b(commercial)/i],
 ];
 
-const SMALL_RESIDENTIAL = /\b(single[- ]family|1 or 2 family|duplex|adu\b|accessory dwelling|sfd\b|residential remodel|kitchen|bathroom|bedroom|garage conversion|pool|spa\b)/i;
+const SMALL_RESIDENTIAL = /\b(single[- ]family|1 or 2 family|duplex|adu\b|accessory dwelling|n?sfd\b|n?sfr\b|new single[- ]family residence|residential remodel|kitchen|bathroom|bedroom|garage conversion|pool|spa\b|fire rebuild of a)/i;
 
 export const LANDSCAPE_TERMS = [
   ['landscap', 'landscape work mentioned'], ['irrigation', 'irrigation mentioned'], ['planting', 'planting mentioned'],

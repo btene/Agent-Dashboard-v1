@@ -70,7 +70,7 @@ function SourceCard({ s, fields, onChange }) {
       </div>
       <div className="chips">
         <span className={`status-pill ${s.status}`}>{statusLabel}</span>
-        <span className="tag">{{ api: 'Official API', portal: 'Web portal only', csv: 'Licensed export (CSV/Excel)' }[s.accessMethod]}</span>
+        <span className="tag">{{ api: 'Official API — automatic', report: 'Official weekly report — automatic', portal: 'Web portal only — manual import', csv: 'Licensed export — manual import' }[s.accessMethod]}</span>
         <span className="tag">{PROVENANCE_LABEL[s.recordClass]}</span>
         <span className="tag">Publisher refresh: {s.refresh?.label}</span>
         {s.recordCount > 0 && <span className="tag">{s.recordCount} live records</span>}
@@ -80,6 +80,7 @@ function SourceCard({ s, fields, onChange }) {
         <dt>Official site</dt><dd><a href={s.officialUrl} target="_blank" rel="noreferrer">{s.officialUrl}</a></dd>
         <dt>Last successful retrieval</dt><dd>{s.lastSuccessAt ? `${when(s.lastSuccessAt)} (${ago(s.lastSuccessAt)})` : 'never'}</dd>
         <dt>Publisher last updated</dt><dd>{s.lastSourceUpdatedAt ? when(s.lastSourceUpdatedAt) : 'unknown'}</dd>
+        {s.connectorSupported && <><dt>Newest record in dataset</dt><dd>{s.latestRecordAt ? new Date(s.latestRecordAt).toLocaleDateString() : 'run to check'}</dd></>}
         {s.lastError && <><dt>Last error</dt><dd className="check-bad">{s.lastError}</dd></>}
         <dt>Licence</dt><dd>{s.license}</dd>
         <dt>Limitations</dt><dd>{s.limitations}</dd>
@@ -102,6 +103,7 @@ function SourceCard({ s, fields, onChange }) {
         <button className="btn sm" onClick={() => setImporting(true)}>Import CSV / Excel</button>
         <Link className="btn sm ghost" to={`/admin#${s.id}`}>How to connect</Link>
       </div>
+      {s.staleWarning && <div className="warn-box small"><strong>Stale source:</strong> {s.staleWarning}</div>}
       {diag && <div className="stack" style={{ gap: 4 }}>{diag.checks.map((c, i) => <div key={i} className={`small ${c.info ? 'text-2' : c.ok ? 'check-ok' : 'check-bad'}`}>{c.info ? 'ℹ' : c.ok ? '✓' : '✗'} <strong>{c.name}</strong> — {c.detail}{c.sample?.sourceRecordUrl && <> · <a href={c.sample.sourceRecordUrl} target="_blank" rel="noreferrer">open the record</a></>}</div>)}</div>}
       {s.recentRuns?.length > 0 && <details><summary className="small">Recent retrievals ({s.recentRuns.length})</summary><div className="table-wrap"><table className="small"><thead><tr><th>When</th><th>Trigger</th><th>Result</th></tr></thead><tbody>{s.recentRuns.map((r) => <tr key={r.id}><td>{when(r.finishedAt)}</td><td>{r.trigger}</td><td className={r.ok ? '' : 'check-bad'}>{r.ok ? `${r.fetched ?? '—'} fetched · ${r.created} new · ${r.updated} changed${r.sourceUpdatedAt ? ` · publisher updated ${when(r.sourceUpdatedAt)}` : ''}` : r.error}</td></tr>)}</tbody></table></div></details>}
       <ErrorBox error={error} />
@@ -116,15 +118,27 @@ export default function IntegrationsPage() {
   const reload = useThrottled(sources.reload, 1000);
   useLiveEvents((e) => { if (e.type === 'source.run' || e.type.startsWith('project.')) reload(); });
   const list = sources.data || [];
-  const gov = list.filter((s) => s.recordClass === 'government');
-  const third = list.filter((s) => s.recordClass !== 'government');
+  const live = list.filter((s) => s.connectorSupported);
+  const gov = list.filter((s) => !s.connectorSupported && s.recordClass === 'government');
+  const third = list.filter((s) => !s.connectorSupported && s.recordClass !== 'government');
+  const counties = ['Santa Barbara', 'Ventura', 'Los Angeles', 'San Bernardino', 'Riverside', 'Orange'];
   return (
     <>
-      <div className="page-header"><div><h1>Integrations</h1><p>Where project data comes from, what each source covers, how fresh it is, and what it cannot tell you. Only official APIs and permitted exports are used.</p></div><Link className="btn" to="/admin">Setup guide &amp; diagnostics</Link></div>
+      <div className="page-header"><div><h1>Integrations</h1><p>Where project data comes from, what each source covers, how fresh it is, and what it cannot tell you. Only official APIs, official reports and permitted exports are used.</p></div><Link className="btn" to="/admin">Setup guide &amp; diagnostics</Link></div>
       <ErrorBox error={sources.error} />
-      <h2 style={{ margin: '8px 0' }}>Government permit databases</h2>
-      <div className="grid grid-2">{gov.map((s) => <SourceCard key={s.id} s={s} fields={reference.data?.importFields || []} onChange={sources.reload} />)}</div>
-      <h2 style={{ margin: '24px 0 8px' }}>Construction intelligence providers (licensed)</h2>
+      <div className="card card-pad" style={{ marginBottom: 16 }}>
+        <h2>Coverage by county</h2>
+        <div className="table-wrap" style={{ marginTop: 8 }}><table className="small"><thead><tr><th>County</th><th>Live (automatic)</th><th>Manual import only</th></tr></thead><tbody>
+          {counties.map((c) => <tr key={c}><td>{c}</td><td className="wrap">{live.filter((s) => s.coverage.county === c).map((s) => s.coverage.jurisdiction.split(' (')[0]).join('; ') || <span className="muted">none</span>}</td><td className="wrap">{list.filter((s) => !s.connectorSupported && s.coverage.county === c).map((s) => s.coverage.jurisdiction.split(' (')[0]).join('; ') || <span className="muted">—</span>}</td></tr>)}
+        </tbody></table></div>
+      </div>
+      <h2 style={{ margin: '8px 0' }}>Live integrations — retrieved automatically</h2>
+      <Help>These connect to an official API or a published weekly report. They run on the schedule you choose and can be verified record by record.</Help>
+      <div className="grid grid-2" style={{ marginTop: 8 }}>{live.map((s) => <SourceCard key={s.id} s={s} fields={reference.data?.importFields || []} onChange={sources.reload} />)}</div>
+      <h2 style={{ margin: '24px 0 8px' }}>Manual imports — government portals without an API</h2>
+      <Help>These agencies publish permits only through a search portal. Export results from the portal and import the file here; the system never scrapes or logs in on your behalf.</Help>
+      <div className="grid grid-2" style={{ marginTop: 8 }}>{gov.map((s) => <SourceCard key={s.id} s={s} fields={reference.data?.importFields || []} onChange={sources.reload} />)}</div>
+      <h2 style={{ margin: '24px 0 8px' }}>Manual imports — licensed construction intelligence providers</h2>
       <Help>These are paid services. Their records are labelled “Verified third-party information” and keep a link to the provider’s own project page.</Help>
       <div className="grid grid-2" style={{ marginTop: 8 }}>{third.map((s) => <SourceCard key={s.id} s={s} fields={reference.data?.importFields || []} onChange={sources.reload} />)}</div>
     </>

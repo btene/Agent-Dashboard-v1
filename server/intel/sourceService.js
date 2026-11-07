@@ -2,6 +2,7 @@
 // and verifies individual projects against their original source.
 import { SOURCE_DEFINITIONS, definitionFor, allowedPollOptions, REFRESH } from './sources.js';
 import * as laCity from './connectors/laCity.js';
+import { riversideCounty, santaBarbaraCity, santaMonica, venturaCounty } from './connectors/regional.js';
 import { SourceUnavailableError } from './connectors/socrata.js';
 import { parseSpreadsheet, suggestMapping, normalizeImportedRows } from './connectors/csvImport.js';
 import { buildProject, applySourceUpdate, projectKey, PIPELINE_STAGES } from './projects.js';
@@ -12,6 +13,10 @@ const CONNECTORS = {
     lookup: (source, permitNumber, opts) => laCity.lookup(source, permitNumber, opts),
     metadata: (source, opts) => laCity.metadata(source, opts),
   },
+  'arcgis-riverside': riversideCounty,
+  'arcgis-santa-barbara': santaBarbaraCity,
+  'ckan-santa-monica': santaMonica,
+  'ventura-pdf': venturaCounty,
   csv: null, // import-only; handled by importFile()
 };
 
@@ -25,8 +30,8 @@ export function createSourceService({ store, bus, settingsService, fetchImpl }) 
     for (const def of SOURCE_DEFINITIONS) {
       if (!store.get('sources', def.id)) {
         store.insert('sources', {
-          id: def.id, enabled: def.enabledByDefault, config: { ...def.config }, pollInterval: def.connector === 'socrata' ? 'daily' : 'manual',
-          status: def.connector === 'socrata' ? 'ready' : 'import_only', lastSuccessAt: null, lastAttemptAt: null, lastError: null,
+          id: def.id, enabled: def.enabledByDefault, config: { ...def.config }, pollInterval: CONNECTORS[def.connector] ? 'daily' : 'manual',
+          status: CONNECTORS[def.connector] ? 'ready' : 'import_only', lastSuccessAt: null, lastAttemptAt: null, lastError: null,
           lastSourceUpdatedAt: null, recordCount: 0, nextRunAt: null, createdAt: now(), updatedAt: now(),
         });
       }
@@ -35,6 +40,11 @@ export function createSourceService({ store, bus, settingsService, fetchImpl }) 
 
   function list() {
     syncRegistry();
+    for (const def of SOURCE_DEFINITIONS) {
+      const st = store.get('sources', def.id);
+      if (st && st.status === 'import_only' && CONNECTORS[def.connector]) store.update('sources', def.id, { status: 'ready', pollInterval: 'daily' });
+      if (st && ['ready', 'connected', 'error'].includes(st.status) && !CONNECTORS[def.connector]) store.update('sources', def.id, { status: 'import_only' });
+    }
     return SOURCE_DEFINITIONS.map((def) => view(def.id));
   }
 
@@ -44,7 +54,7 @@ export function createSourceService({ store, bus, settingsService, fetchImpl }) 
     if (!def || !state) return null;
     const { config: stateConfig, ...rest } = state;
     const config = { ...def.config, ...stateConfig };
-    const redacted = { ...config, appToken: config.appToken ? '••••' : '' };
+    const redacted = { ...config, appToken: config.appToken ? '••••' : '', apiKey: config.apiKey ? '••••' : undefined };
     const recordCount = store.list('projects').filter((p) => p.sourceId === id && p.environment === 'live').length;
     return {
       ...def, ...rest, config: redacted, hasAppToken: Boolean(config.appToken), recordCount,
@@ -85,6 +95,7 @@ export function createSourceService({ store, bus, settingsService, fetchImpl }) 
     store.update('sources', sourceId, run.ok
       ? { lastAttemptAt: run.finishedAt, lastSuccessAt: run.finishedAt, lastError: null, status: 'connected', lastSourceUpdatedAt: run.sourceUpdatedAt || null, updatedAt: now() }
       : { lastAttemptAt: run.finishedAt, lastError: run.error, status: 'error', updatedAt: now() });
+    if (run.ok && run.latestRecordAt !== undefined) store.update('sources', sourceId, { latestRecordAt: run.latestRecordAt, staleWarning: run.staleWarning || null });
     bus.publish('source.run', { sourceId, ...run });
     return doc;
   }
@@ -130,13 +141,16 @@ export function createSourceService({ store, bus, settingsService, fetchImpl }) 
     }
     try {
       const settings = settingsService.get();
-      const since = new Date(Date.now() - (lookbackDays || (source.lastSuccessAt ? 45 : 365)) * 86_400_000).toISOString();
-      const [meta, records] = await Promise.all([
-        connector.metadata(source, { fetchImpl }).catch(() => null),
-        connector.discover(source, { sinceIso: since, minValuation: settings.scoring?.minValuation, fetchImpl }),
-      ]);
+      const since = new Date(Date.now() - (lookbackDays || connector.defaultLookbackDays || (source.lastSuccessAt ? 45 : 365)) * 86_400_000).toISOString();
+      // Discover first: some connectors (weekly reports) learn their freshness while reading.
+      const records = await connector.discover(source, { sinceIso: since, minValuation: settings.scoring?.minValuation, fetchImpl });
+      const meta = await connector.metadata(source, { fetchImpl }).catch(() => null);
       const counts = upsertRecords(records, { environment: 'live', trigger });
-      const run = { ok: true, trigger, startedAt, finishedAt: now(), error: null, fetched: records.length, ...counts, ids: undefined, sourceUpdatedAt: meta?.rowsUpdatedAt || records[0]?.sourceUpdatedAt || null, publisherRefreshRate: meta?.publisherRefreshRate || null, since };
+      // Newest record actually present at the source — catches publishers that stop adding data.
+      const latestRecordAt = meta?.latestRecordAt || records.map((r) => r.appliedAt || r.issuedAt).filter(Boolean).sort().at(-1) || null;
+      const staleDays = latestRecordAt ? Math.floor((Date.now() - Date.parse(latestRecordAt)) / 86_400_000) : null;
+      const staleWarning = staleDays != null && staleDays > 60 ? `The newest record at this source is dated ${latestRecordAt.slice(0, 10)} (${staleDays} days ago). The publisher does not appear to be adding new permits.` : null;
+      const run = { ok: true, trigger, startedAt, finishedAt: now(), error: null, fetched: records.length, ...counts, ids: undefined, sourceUpdatedAt: meta?.rowsUpdatedAt || records[0]?.sourceUpdatedAt || null, latestRecordAt, staleWarning, publisherRefreshRate: meta?.publisherRefreshRate || null, since };
       return recordRun(id, run);
     } catch (err) {
       const run = { ok: false, trigger, startedAt, finishedAt: now(), error: err.message, created: 0, updated: 0, unchanged: 0, unavailable: err instanceof SourceUnavailableError };
@@ -168,7 +182,7 @@ export function createSourceService({ store, bus, settingsService, fetchImpl }) 
     }
     try {
       const source = resolved(project.sourceId);
-      const rec = await connector.lookup(source, project.permitNumber, { fetchImpl });
+      const rec = await connector.lookup(source, project.permitNumber, { fetchImpl, hintUrl: project.sourceRecordUrl });
       if (!rec) {
         const v = { ...base, status: 'not_found', message: 'The source no longer returns this permit number. The record was kept and marked for review.', changes: [], retrievedAt: now(), sourceTimestamp: null };
         store.insert('verifications', v);
@@ -224,13 +238,13 @@ export function createSourceService({ store, bus, settingsService, fetchImpl }) 
     if (CONNECTORS[def.connector]) {
       try {
         const meta = await CONNECTORS[def.connector].metadata(source, { fetchImpl });
-        checks.push({ name: 'Reach the publisher', ok: true, detail: `${meta.name} — publisher last updated ${meta.rowsUpdatedAt || 'unknown'}; stated refresh: ${meta.publisherRefreshRate || 'not stated'}`, latencyMs: Date.now() - t0 });
+        checks.push({ name: 'Reach the publisher', ok: true, detail: `${meta.name} — publisher last updated ${meta.rowsUpdatedAt || 'unknown'}; stated refresh: ${meta.publisherRefreshRate || 'not stated'}${meta.latestRecordAt ? `; newest record ${meta.latestRecordAt.slice(0, 10)}` : ''}`, latencyMs: Date.now() - t0 });
       } catch (err) {
         checks.push({ name: 'Reach the publisher', ok: false, detail: err.message, latencyMs: Date.now() - t0 });
       }
       try {
         const t1 = Date.now();
-        const sample = await CONNECTORS[def.connector].discover(source, { sinceIso: new Date(Date.now() - 180 * 86_400_000).toISOString(), minValuation: 1_000_000, maxRows: 1, fetchImpl });
+        const sample = await CONNECTORS[def.connector].discover(source, { sinceIso: new Date(Date.now() - (def.connector === 'socrata' ? 180 : (CONNECTORS[def.connector].defaultLookbackDays || 180)) * 86_400_000).toISOString(), minValuation: def.connector === 'socrata' ? 1_000_000 : 0, maxRows: def.connector === 'socrata' ? 1 : 50, fetchImpl });
         checks.push({ name: 'Retrieve a real record', ok: sample.length > 0, detail: sample.length ? `Permit ${sample[0].permitNumber} at ${sample[0].address} — ${sample[0].sourceRecordUrl}` : 'Query succeeded but returned no rows', latencyMs: Date.now() - t1, sample: sample[0] ? { permitNumber: sample[0].permitNumber, address: sample[0].address, status: sample[0].status, issuedAt: sample[0].issuedAt, valuation: sample[0].valuation, sourceRecordUrl: sample[0].sourceRecordUrl } : null });
       } catch (err) {
         checks.push({ name: 'Retrieve a real record', ok: false, detail: err.message });

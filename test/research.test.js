@@ -170,3 +170,35 @@ test('reply matching uses Message-ID first and sender+subject second', () => {
   assert.equal(svc.matchSent({ from: { value: [{ address: 'Z@y.test' }] }, subject: 'RE: Landscaping — Permit 2' }, sent).email.id, 'e2');
   assert.equal(svc.matchSent({ from: { value: [{ address: 'nobody@y.test' }] }, subject: 'Hi' }, sent), null);
 });
+
+test('Ventura County weekly report parser reads entries and classifies abbreviations', async () => {
+  const { parseReport, reportUrls } = await import('../server/intel/connectors/venturaPdf.js');
+  const text = ['County of Ventura - Division of Building and Safety Report of Permits', 'Issued for the Week Ending 7/18/2026', 'East County Office', 'Date of Issuance: July 13, 2026', 'Permit Type: Combo', 'Parcel NumberAddressPermit NumberProject Type', 'Valuation',
+    '341 WILLIAMSBURG WY, ', 'WESTLAKE VILLAGE, CA ', '91361', 'BP25-04052Building Permit', '$1,161,615.00', 'Lake Sherwood Miramar Club Fitness ', 'Building/Pool House-Improvements', '6950390155', 'Yes',
+    '535 N PARK SPRINGS ', 'CT, OAK PARK, CA   91377', 'BP26-01856Building Permit$1,400.00', 'Remove and replace 8 retrofit windows', '8010161095Yes'].join('\n');
+  const e = parseReport(text);
+  assert.equal(e.length, 2);
+  assert.equal(e[0].permitNumber, 'BP25-04052');
+  assert.equal(e[0].valuation, 1161615);
+  assert.equal(e[0].address, '341 WILLIAMSBURG WY, WESTLAKE VILLAGE, CA 91361');
+  assert.equal(e[0].apn, '6950390155');
+  assert.equal(e[0].issuedOn, '2026-07-13');
+  assert.equal(e[1].valuation, 1400);
+  assert.ok(reportUrls(new Date('2026-01-12T00:00:00Z')).some((u) => u.includes('2026-1-12-')));
+  assert.equal(classifyProject({ permitType: 'Combo · NSFR', description: 'NSFR 5633 SF, attached garage 946 SF' }).projectType, 'residential_small');
+});
+
+test('Riverside County landscape permits count as a documented landscape scope', async () => {
+  const { riversideCounty } = await import('../server/intel/connectors/regional.js');
+  const fakeFetch = async () => new Response(JSON.stringify({ features: [
+    { attributes: { CASE_ID: 'LSP260023', CASE_DESCR: 'LS PLANS FOR VETERANS HOMEWOOD SUITES HOTEL', CASE_TYPE: 'LANDSCAPE PERMIT (LSP)', CASE_WORK_CLASS: 'LSP01 - LANDSCAPE PERMIT', CASE_STATUS: 'PAYMENT PENDING', APPLIED_DATE: Date.parse('2026-10-15'), APPROVED_DATE: null, APN: '294720002' }, geometry: { rings: [[[-117.2, 33.9], [-117.1, 33.9], [-117.1, 34.0]]] } },
+    { attributes: { CASE_ID: 'LSP260023', CASE_DESCR: 'LS PLANS FOR VETERANS HOMEWOOD SUITES HOTEL', CASE_TYPE: 'LANDSCAPE PERMIT (LSP)', APPLIED_DATE: Date.parse('2026-10-15'), APN: '294720003' }, geometry: null },
+  ] }), { status: 200, headers: { 'content-type': 'application/json' } });
+  const recs = await riversideCounty.discover({ id: 'riverside-county-plus', name: 'R', agency: 'RC', config: { layerUrl: 'https://gis.countyofriverside.us/x/MapServer/280' } }, { fetchImpl: fakeFetch });
+  assert.equal(recs.length, 1, 'duplicate parcel rows merge into one case');
+  assert.match(recs[0].address, /APN 294720002, 294720003/);
+  assert.match(recs[0].landscapeScopeDocumented, /landscape permit LSP260023/);
+  assert.match(recs[0].sourceRecordUrl, /CASE_ID%3D%27LSP260023%27/);
+  assert.equal(recs[0].valuation, null, 'no valuation is invented');
+  assert.equal(recs[0].applicant, null);
+});
