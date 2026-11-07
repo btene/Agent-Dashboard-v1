@@ -15,17 +15,29 @@ function fakeProviders() {
     req.on('data', (c) => { body += c; });
     req.on('end', () => {
       res.setHeader('content-type', 'application/json');
-      if (req.url.startsWith('/api/v1/mixed_people/search')) {
-        if (req.headers['x-api-key'] !== 'apollo-key') { res.writeHead(401); return res.end('{}'); }
-        const q = JSON.parse(body);
+      const u = new URL(req.url, 'http://x');
+      if (u.pathname.startsWith('/api/v1/') && req.headers['x-api-key'] !== 'apollo-key') { res.writeHead(401); return res.end('{}'); }
+      if (u.pathname === '/api/v1/mixed_companies/search') {
+        assert.equal(req.method, 'POST');
+        return res.end(JSON.stringify({ organizations: [{ id: 'org1', name: u.searchParams.get('q_organization_name'), primary_domain: 'samplebuilders.test' }] }));
+      }
+      if (u.pathname === '/api/v1/mixed_people/api_search') {
+        // Real API: query-string params, partial names, no email/LinkedIn.
+        assert.deepEqual(u.searchParams.getAll('q_organization_domains_list[]'), ['samplebuilders.test']);
+        assert.ok(u.searchParams.getAll('person_titles[]').length > 5);
         return res.end(JSON.stringify({ people: [
-          { id: 'p1', first_name: 'Maria', last_name: 'Gomez', title: 'Chief Estimator', email: 'maria@samplebuilders.test', email_status: 'verified', linkedin_url: 'https://www.linkedin.com/in/maria-gomez-test', city: 'Los Angeles', state: 'CA', organization: { name: q.q_organization_name, primary_domain: 'samplebuilders.test' } },
-          { id: 'p2', first_name: 'Tom', last_name: 'Reed', title: 'Marketing Coordinator', email: 'email_not_unlocked@domain.com', linkedin_url: null, organization: { name: q.q_organization_name } },
+          { id: 'p1', first_name: 'Maria', last_name_obfuscated: 'Go***z', title: 'Chief Estimator', has_email: true, organization: { name: 'Sample Builders' } },
+          { id: 'p2', first_name: 'Tom', last_name_obfuscated: 'Re***d', title: 'Marketing Coordinator', has_email: false, organization: { name: 'Sample Builders' } },
         ] }));
       }
-      if (req.url.startsWith('/v2/email-verifier')) return res.end(JSON.stringify({ data: { status: 'valid', result: 'deliverable', score: 97 } }));
-      if (req.url.startsWith('/v2/domain-search')) return res.end(JSON.stringify({ data: { organization: 'Sample Builders', emails: [{ value: 'j.lee@samplebuilders.test', first_name: 'Jin', last_name: 'Lee', position: 'Director of Preconstruction', confidence: 90, sources: [{ uri: 'https://samplebuilders.test/team' }] }] } }));
-      if (req.url.startsWith('/api/v1/organizations/enrich')) return res.end(JSON.stringify({ organization: { name: 'Sample Builders', primary_domain: 'samplebuilders.test', website_url: 'https://samplebuilders.test' } }));
+      if (u.pathname === '/api/v1/people/match') {
+        assert.equal(u.searchParams.get('reveal_phone_number'), 'false');
+        if (u.searchParams.get('id') === 'p1') return res.end(JSON.stringify({ person: { id: 'p1', first_name: 'Maria', last_name: 'Gomez', title: 'Chief Estimator', email: 'maria@samplebuilders.test', email_status: 'verified', linkedin_url: 'http://www.linkedin.com/in/maria-gomez-test', city: 'Los Angeles', state: 'CA', organization: { name: 'Sample Builders', primary_domain: 'samplebuilders.test' } } }));
+        return res.end(JSON.stringify({ person: null }));
+      }
+      if (u.pathname === '/v2/email-verifier') return res.end(JSON.stringify({ data: { status: 'valid', result: 'deliverable', score: 97 } }));
+      if (u.pathname === '/v2/domain-search') { assert.ok(u.searchParams.get('company') === 'Sample Builders' || u.searchParams.get('domain') === 'samplebuilders.test'); assert.equal(req.headers['x-api-key'], 'hunter-key'); return res.end(JSON.stringify({ data: { domain: 'samplebuilders.test', organization: 'Sample Builders', emails: [{ value: 'j.lee@samplebuilders.test', first_name: 'Jin', last_name: 'Lee', position: 'Director of Preconstruction', seniority: 'senior', decision_maker: true, confidence: 90, provenance: 'found', sources: [{ uri: 'https://samplebuilders.test/team' }] }] } })); }
+      if (u.pathname === '/api/v1/organizations/enrich') return res.end(JSON.stringify({ organization: { name: 'Sample Builders', primary_domain: 'samplebuilders.test', website_url: 'https://samplebuilders.test' } }));
       res.writeHead(404); res.end('{}');
     });
   });
@@ -99,11 +111,22 @@ test('find decision-makers: providers, scoring, verification, dedupe into CRM, r
   r = (await call(`/projects/${project.id}/research`, { method: 'POST', body: {} })).body;
   assert.equal(r.providersUsed.length, 2);
   assert.ok(r.candidateCount >= 2);
-  const maria = r.candidates.find((c) => c.lastName === 'Gomez');
-  const tom = r.candidates.find((c) => c.lastName === 'Reed');
+  let maria = r.candidates.find((c) => c.firstName === 'Maria');
+  const tom = r.candidates.find((c) => c.firstName === 'Tom');
   assert.ok(maria.score.total > tom.score.total, 'estimator outranks marketing');
-  assert.equal(tom.email, null, 'locked Apollo placeholder email is not stored');
+  assert.equal(maria.needsReveal, true, 'Apollo search hides the surname');
+  assert.equal(maria.lastName, null);
+  assert.equal(maria.email, null);
   assert.equal(maria.projectConnection, 'company_named_on_record');
+  const jin = r.candidates.find((c) => c.lastName === 'Lee');
+  assert.match(jin.sourceLabel, /found on 1 public page/);
+  assert.equal(jin.sourceUrl, 'https://samplebuilders.test/team');
+  // cannot save until revealed
+  assert.equal((await call(`/candidates/${maria.id}/save`, { method: 'POST', body: {} })).status, 409);
+  maria = (await call(`/candidates/${maria.id}/reveal`, { method: 'POST' })).body;
+  assert.equal(maria.lastName, 'Gomez');
+  assert.equal(maria.email, 'maria@samplebuilders.test');
+  assert.equal(maria.emailVerification.status, 'valid');
   // verify + save
   const verified = (await call(`/candidates/${maria.id}/verify-email`, { method: 'POST' })).body;
   assert.equal(verified.emailVerification.status, 'valid');
@@ -114,8 +137,8 @@ test('find decision-makers: providers, scoring, verification, dedupe into CRM, r
   assert.deepEqual(saved.projectIds, [project.id]);
   // re-running dedupes rather than duplicating
   r = (await call(`/projects/${project.id}/research`, { method: 'POST', body: {} })).body;
-  const again = (await call(`/candidates/${r.candidates.find((c) => c.lastName === 'Gomez').id}/save`, { method: 'POST', body: {} })).body;
-  assert.equal(again.id, saved.id);
+  const again = r.candidates.find((c) => c.firstName === 'Maria');
+  assert.equal(again.id, maria.id, 're-running the search updates the same candidate instead of creating a new one');
   assert.equal((await call('/contacts')).body.filter((c) => c.lastName === 'Gomez').length, 1);
   // relationship intelligence
   const rel = (await call('/relationships/check?company=Sample%20Builders')).body;

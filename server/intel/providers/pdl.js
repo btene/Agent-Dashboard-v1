@@ -1,4 +1,9 @@
-// People Data Labs. Docs: https://docs.peopledatalabs.com/docs/person-search-api,
+// People Data Labs — verified Nov 2026 against docs.peopledatalabs.com:
+//   Person Search POST https://api.peopledatalabs.com/v5/person/search  {query (Elasticsearch), size 1–100}
+//     1 credit per record returned; default rate limit 10 requests/minute.
+//   Person Enrichment GET /v5/person/enrich (charged per match; 404 when no match).
+// Pricing (peopledatalabs.com/pricing): Free tier; Pro from $98/mo for 350 credits, contact data included.
+// Docs: https://docs.peopledatalabs.com/docs/person-search-api,
 // https://docs.peopledatalabs.com/docs/person-enrichment-api,
 // https://docs.peopledatalabs.com/docs/company-enrichment-api
 // Auth: `X-Api-Key` header. Pay-as-you-go credits; Person Search supports an
@@ -8,7 +13,8 @@ import { callJson } from './index.js';
 export const INFO = {
   id: 'pdl', name: 'People Data Labs', website: 'https://www.peopledatalabs.com/', docs: 'https://docs.peopledatalabs.com/',
   capabilities: { peopleSearchByCompanyAndTitle: true, personEnrichment: true, emailVerification: 'no dedicated verifier; work_email with confidence', companyEnrichment: true, linkedinUrlReturned: true, phones: 'extra fields, consent handling required' },
-  credentials: [{ key: 'apiKey', label: 'API key', help: 'PDL dashboard → API Keys. Free tier gives a small number of credits per month.' }],
+  pricing: 'Free tier (limited monthly credits); Pro from $98/mo for 350 credits with contact data; 1 credit per person record returned.',
+  credentials: [{ key: 'apiKey', label: 'API key', help: 'dashboard.peopledatalabs.com → API Keys. Each person returned by a search costs 1 credit, so searches are capped at 10 people.' }],
 };
 export const isConfigured = (cfg) => Boolean(cfg?.apiKey);
 const BASE = 'https://api.peopledatalabs.com/v5';
@@ -27,12 +33,12 @@ export async function searchPeople(cfg, { company, domain, titles = [], limit = 
   const must = [];
   if (domain) must.push({ term: { job_company_website: domain } }); else if (company) must.push({ match: { job_company_name: company } });
   if (titles.length) must.push({ bool: { should: titles.map((t) => ({ match_phrase: { job_title: t } })), minimum_should_match: 1 } });
-  const data = await callJson('pdl', `${BASE}/person/search`, { method: 'POST', headers: headers(cfg), body: { size: Math.min(limit, 25), query: { bool: { must } }, pretty: false }, fetchImpl });
+  const data = await callJson('pdl', `${BASE}/person/search`, { method: 'POST', headers: headers(cfg), body: { size: Math.min(limit, 10), query: { bool: { must } }, titlecase: true }, fetchImpl }).catch((e) => { if (e.status === 404) return { data: [] }; throw e; });
   return (data?.data || []).map(toCandidate);
 }
 
 export async function enrichPerson(cfg, { firstName, lastName, company, linkedinUrl, email, fetchImpl }) {
-  const q = new URLSearchParams({ min_likelihood: '6' });
+  const q = new URLSearchParams({ min_likelihood: '6', titlecase: 'true' });
   if (linkedinUrl) q.set('profile', linkedinUrl);
   if (email) q.set('email', email);
   if (firstName && lastName) q.set('name', `${firstName} ${lastName}`);

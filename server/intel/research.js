@@ -138,7 +138,11 @@ export function createResearchService({ store, bus, settingsService, crmService,
     return { company, contacts: contacts.map((c) => ({ id: c.id, name: `${c.firstName || ''} ${c.lastName || ''}`.trim(), title: c.title, email: c.email, lastContactedAt: c.lastContactedAt || null })), emailsSent: sent.length, replies: replied.length, relationshipEvents: relationshipEvents.slice(-10).reverse(), level, summary: level === 'warm' ? `Existing relationship: ${replied.length ? `${replied.length} repl${replied.length === 1 ? 'y' : 'ies'}` : ''}${relationshipEvents.length ? ` ${relationshipEvents.length} recorded interaction${relationshipEvents.length === 1 ? '' : 's'}` : ''}`.trim() : level === 'contacted' ? `Already contacted (${sent.length} email${sent.length === 1 ? '' : 's'} sent, no reply yet)` : level === 'known' ? `${contacts.length} contact${contacts.length === 1 ? '' : 's'} in CRM, no outreach yet` : 'No existing relationship in the CRM' };
   }
 
-  function dedupeKey(c) { return c.email ? `e:${c.email.toLowerCase()}` : `n:${(c.firstName || '').toLowerCase()}|${(c.lastName || '').toLowerCase()}|${(c.company || '').toLowerCase()}`; }
+  function dedupeKey(c) {
+    if (c.email) return `e:${c.email.toLowerCase()}`;
+    if (!c.lastName && c.providerId) return `p:${c.provider}:${c.providerId}`;
+    return `n:${(c.firstName || '').toLowerCase()}|${(c.lastName || '').toLowerCase()}|${(c.companyName || c.company || '').toLowerCase()}`;
+  }
 
   /** Run discovery for one project (or a company) and store candidates. */
   async function findDecisionMakers({ projectId, companyId, companyName, domain, trigger = 'manual' }) {
@@ -155,7 +159,14 @@ export function createResearchService({ store, bus, settingsService, crmService,
     const providers = enabledProviders(settings);
     const run = { id: store.newId('rsr'), projectId: projectId || null, companyId: companyId || null, trigger, startedAt: now(), providersUsed: providers, targets: targets.map((t) => ({ name: t.name, role: t.role })), results: [], errors: [], linkedin: [], relationships: [] };
     const existingKeys = new Map(store.list('contacts').filter((c) => c.environment === 'live').map((c) => [dedupeKey(c), c]));
-    const candidateKeys = new Map(store.list('candidates').map((c) => [`${c.projectId || c.companyId}|${dedupeKey(c)}`, c]));
+    // Index existing candidates by every key that can identify them (email, name+company, provider id),
+    // so a later search that returns the same person in partial form updates the same record.
+    const candidateKeys = new Map();
+    for (const c of store.list('candidates')) {
+      const scope = c.projectId || c.companyId;
+      candidateKeys.set(`${scope}|${dedupeKey(c)}`, c);
+      if (c.providerId) candidateKeys.set(`${scope}|p:${c.provider}:${c.providerId}`, c);
+    }
 
     if (!targets.length) run.errors.push({ provider: null, message: 'This project does not name a developer, general contractor or owner yet. Look the permit up at the agency, or import provider data, then add the company under "Add researched facts".' });
     for (const t of targets) {
@@ -167,15 +178,27 @@ export function createResearchService({ store, bus, settingsService, crmService,
         try {
           const people = await PROVIDERS[pid].searchPeople(settings.providers[pid], { company: t.name, domain: dom, titles, limit: 10, fetchImpl });
           for (const p of people) {
-            const key = `${projectId || companyId}|${dedupeKey(p)}`;
+            const scope = projectId || companyId;
+            const key = `${scope}|${dedupeKey(p)}`;
+            const providerKey = p.providerId ? `${scope}|p:${p.provider}:${p.providerId}` : null;
             const existingContact = existingKeys.get(dedupeKey(p)) || null;
             const base = { ...p, projectId: projectId || null, companyId: companyId || t.company?.id || null, companyRole: t.role, companyName: t.name, projectConnection: 'company_named_on_record', existingContactId: existingContact?.id || null, environment: 'live' };
             base.score = scoreCandidate(base, { project, companyRole: t.role, opportunityType });
-            const prior = candidateKeys.get(key);
-            if (prior) { store.update('candidates', prior.id, { ...base, id: prior.id, status: prior.status, updatedAt: now() }); run.results.push(prior.id); }
-            else { const doc = store.insert('candidates', { id: store.newId('cand'), ...base, status: 'candidate', createdAt: now(), updatedAt: now() }); candidateKeys.set(key, doc); run.results.push(doc.id); }
+            const prior = (providerKey && candidateKeys.get(providerKey)) || candidateKeys.get(key);
+            if (prior) {
+              // Never overwrite revealed or verified details with blanks from a partial search result.
+              const keep = Object.fromEntries(Object.entries(base).filter(([, v]) => v !== null && v !== undefined));
+              if (!prior.needsReveal) delete keep.needsReveal;
+              const merged = { ...prior, ...keep, id: prior.id, status: prior.status, updatedAt: now() };
+              merged.score = scoreCandidate(merged, { project, companyRole: t.role, opportunityType });
+              store.update('candidates', prior.id, merged);
+              run.results.push(prior.id);
+            } else {
+              const doc = store.insert('candidates', { id: store.newId('cand'), ...base, status: 'candidate', createdAt: now(), updatedAt: now() });
+              candidateKeys.set(key, doc); if (providerKey) candidateKeys.set(providerKey, doc);
+              run.results.push(doc.id);
+            }
           }
-          run.results.push(...[]);
         } catch (err) { run.errors.push({ provider: pid, message: err.message }); }
       }
       if (!providers.length) run.errors.push({ provider: null, message: `No contact-data provider is enabled. ${Object.values(PROVIDER_INFO).filter((p) => !p.enterpriseOnly).map((p) => p.name).join(', ')} can be connected under Settings → Contact research providers. LinkedIn search links are provided below for manual research.` });
@@ -195,6 +218,24 @@ export function createResearchService({ store, bus, settingsService, crmService,
 
   function candidatesFor({ projectId, companyId }) {
     return store.list('candidates').filter((c) => (projectId && c.projectId === projectId) || (companyId && c.companyId === companyId)).sort((a, b) => (b.score?.total || 0) - (a.score?.total || 0));
+  }
+
+  /** Spend provider credits to reveal a partly hidden search result (Apollo). */
+  async function revealCandidate(candidateId) {
+    const c = store.get('candidates', candidateId);
+    if (!c) throw Object.assign(new Error('Candidate not found'), { status: 404 });
+    if (!c.needsReveal) return c;
+    const settings = settingsService.get();
+    const cfg = settings.providers?.[c.provider];
+    if (!cfg?.enabled || !PROVIDERS[c.provider]?.isConfigured(cfg)) throw Object.assign(new Error(`${PROVIDER_INFO[c.provider]?.name || c.provider} is not enabled`), { status: 409 });
+    const r = await PROVIDERS[c.provider].enrichPerson(cfg, { providerId: c.providerId, fetchImpl });
+    if (!r) { store.update('candidates', candidateId, { needsReveal: false, revealFailed: true, updatedAt: now() }); return store.get('candidates', candidateId); }
+    const project = c.projectId ? store.get('projects', c.projectId) : null;
+    const merged = { ...c, ...Object.fromEntries(Object.entries(r).filter(([, v]) => v !== null && v !== undefined)), needsReveal: false, revealedAt: now(), companyName: c.companyName };
+    merged.score = scoreCandidate(merged, { project, companyRole: c.companyRole, opportunityType: project?.classification?.opportunityType });
+    const dupe = store.list('contacts').find((x) => x.environment === 'live' && dedupeKey(x) === dedupeKey(merged));
+    if (dupe) merged.existingContactId = dupe.id;
+    return store.update('candidates', candidateId, { ...merged, updatedAt: now() });
   }
 
   async function verifyCandidateEmail(candidateId) {
@@ -217,6 +258,7 @@ export function createResearchService({ store, bus, settingsService, crmService,
   function saveCandidate(candidateId, { verifiedBy = 'user', linkedinUrl } = {}) {
     const c = store.get('candidates', candidateId);
     if (!c) throw Object.assign(new Error('Candidate not found'), { status: 404 });
+    if (c.needsReveal) throw Object.assign(new Error('This person\'s full name is hidden by the provider. Press "Reveal" (uses provider credits) or find them via the LinkedIn links and add them by hand.'), { status: 409 });
     const existing = c.existingContactId ? store.get('contacts', c.existingContactId) : store.list('contacts').find((x) => x.environment === 'live' && dedupeKey(x) === dedupeKey(c));
     const sources = [...(existing?.sources || []), { provider: c.provider, label: c.sourceLabel, url: c.sourceUrl, retrievedAt: c.updatedAt }];
     const role = c.companyRole === 'generalContractor' ? 'general_contractor' : c.companyRole === 'applicant' ? 'developer' : c.companyRole === 'propertyOwner' ? 'property_owner' : c.companyRole === 'propertyManager' ? 'property_manager' : (/estimat|precon/i.test(c.title || '') ? 'estimator' : /procure|purchas/i.test(c.title || '') ? 'procurement' : /facilit/i.test(c.title || '') ? 'facilities' : /property manag/i.test(c.title || '') ? 'property_manager' : /asset/i.test(c.title || '') ? 'asset_manager' : 'other');
@@ -263,5 +305,5 @@ export function createResearchService({ store, bus, settingsService, crmService,
     return { company, provider: null, errors: errors.length ? errors : ['No provider returned company details. Add the website/domain by hand to enable domain-based people search.'] };
   }
 
-  return { findDecisionMakers, candidatesFor, verifyCandidateEmail, saveCandidate, dismissCandidate, addManualContact, relationshipFor, companiesFor, enrichCompany, linkedinLinks, titleSetFor, PROVIDER_INFO };
+  return { findDecisionMakers, candidatesFor, revealCandidate, verifyCandidateEmail, saveCandidate, dismissCandidate, addManualContact, relationshipFor, companiesFor, enrichCompany, linkedinLinks, titleSetFor, PROVIDER_INFO };
 }

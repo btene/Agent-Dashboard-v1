@@ -85,6 +85,7 @@ export function createIntelApi({ store, bus, settingsService, sourceService, ema
   });
   api.patch('/companies/:id', requireRole('staff'), (req, res) => { const c = store.get('companies', req.params.id); if (!c) throw err(404, 'Company not found'); const patch = {}; for (const k of ['name', 'type', 'website', 'domain', 'phone', 'address', 'notes', 'linkedinUrl']) if (typeof req.body[k] === 'string') patch[k] = req.body[k].trim() || null; if (patch.website && !patch.domain) patch.domain = patch.website.replace(/^https?:\/\//, '').replace(/\/.*$/, '').replace(/^www\./, ''); res.json(store.update('companies', c.id, { ...patch, updatedAt: now() })); });
   api.get('/candidates', (req, res) => res.json(researchService.candidatesFor({ projectId: req.query.projectId, companyId: req.query.companyId })));
+  api.post('/candidates/:id/reveal', requireRole('staff'), async (req, res) => res.json(await researchService.revealCandidate(req.params.id)));
   api.post('/candidates/:id/verify-email', requireRole('staff'), async (req, res) => res.json(await researchService.verifyCandidateEmail(req.params.id)));
   api.post('/candidates/:id/save', requireRole('staff'), (req, res) => res.status(201).json(researchService.saveCandidate(req.params.id, { linkedinUrl: req.body?.linkedinUrl })));
   api.post('/candidates/:id/dismiss', requireRole('staff'), (req, res) => res.json(researchService.dismissCandidate(req.params.id, req.body?.reason)));

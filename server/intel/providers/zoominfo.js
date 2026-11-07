@@ -12,6 +12,7 @@ export const INFO = {
     { key: 'privateKey', label: 'Private key', help: 'PKI private key from ZoomInfo API admin.' },
   ],
   enterpriseOnly: true,
+  pricing: 'Not published. Sold on annual enterprise contracts; API access is negotiated separately.',
 };
 export const isConfigured = (cfg) => Boolean(cfg?.username && cfg?.clientId && cfg?.privateKey);
 const notAvailable = () => { throw Object.assign(new Error('ZoomInfo: API access requires an enterprise agreement; this adapter is a placeholder until credentials are issued. Use the ZoomInfo web app and import an export instead.'), { provider: 'zoominfo', status: 501 }); };

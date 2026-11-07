@@ -95,7 +95,7 @@ export function ResearchPanel({ projectId, companyId }) {
           <Help>Unverified leads from providers are marked as such. Verify the email or confirm the LinkedIn profile, then save to the CRM.</Help>
           {candidates.map((c) => (
             <div key={c.id} className="history-item">
-              <div className="row"><strong>{c.firstName} {c.lastName}</strong><span className="text-2">{c.title || 'title unknown'}</span><span className="tag">{c.companyName || c.company}</span>
+              <div className="row"><strong>{c.firstName} {c.lastName || c.lastNameObfuscated || ''}</strong><span className="text-2">{c.title || 'title unknown'}</span><span className="tag">{c.companyName || c.company}</span>
                 <span className={`conf ${c.status === 'saved' ? 'conf-ok' : c.emailVerification?.status === 'valid' || c.linkedinVerifiedAt ? 'conf-ok' : 'conf-no'}`}>{c.status === 'saved' ? 'Saved to CRM' : c.emailVerification?.status === 'valid' || c.linkedinVerifiedAt ? 'Verified' : 'Unverified lead'}</span>
                 <span className="score tier-medium" style={{ fontSize: 14 }}>{c.score?.total ?? '—'}</span></div>
               <div className="small">{c.email || <span className="muted">no email</span>}{c.emailVerification && <span className={c.emailVerification.status === 'valid' ? 'check-ok' : 'check-bad'}> · {c.emailVerification.detail}</span>}{c.phone ? ` · ${c.phone}` : ''}{c.location ? ` · ${c.location}` : ''}</div>
@@ -103,9 +103,10 @@ export function ResearchPanel({ projectId, companyId }) {
               <CandidateScore score={c.score} />
               {c.status !== 'saved' && (
                 <div className="row" style={{ marginTop: 6 }}>
+                  {c.needsReveal && <button className="btn sm" disabled={busy} title="Spends about 1 provider credit to get the full name, verified email and LinkedIn URL" onClick={() => act(() => api(`/candidates/${c.id}/reveal`, { method: 'POST' }), c.id)}>Reveal (≈1 credit)</button>}
                   {c.email && !c.emailVerification && <button className="btn sm" disabled={busy} onClick={() => act(() => api(`/candidates/${c.id}/verify-email`, { method: 'POST' }), c.id)}>Verify email</button>}
                   <input placeholder="Paste LinkedIn URL you checked" value={linkedinFor[c.id] ?? c.linkedinUrl ?? ''} onChange={(e) => setLinkedinFor({ ...linkedinFor, [c.id]: e.target.value })} style={{ maxWidth: 280, padding: '4px 8px' }} />
-                  <button className="btn sm primary" disabled={busy} onClick={() => act(() => api(`/candidates/${c.id}/save`, { method: 'POST', body: { linkedinUrl: linkedinFor[c.id] || undefined } }), c.id)}>Save to CRM</button>
+                  <button className="btn sm primary" disabled={busy || c.needsReveal} title={c.needsReveal ? 'Reveal the full name first' : ''} onClick={() => act(() => api(`/candidates/${c.id}/save`, { method: 'POST', body: { linkedinUrl: linkedinFor[c.id] || undefined } }), c.id)}>Save to CRM</button>
                   <button className="btn sm ghost" disabled={busy} onClick={() => act(() => api(`/candidates/${c.id}/dismiss`, { method: 'POST', body: {} }), c.id)}>Dismiss</button>
                 </div>
               )}
