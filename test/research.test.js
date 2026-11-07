@@ -202,3 +202,19 @@ test('Riverside County landscape permits count as a documented landscape scope',
   assert.equal(recs[0].valuation, null, 'no valuation is invented');
   assert.equal(recs[0].applicant, null);
 });
+
+test('verifying against a source never erases facts the team researched', async () => {
+  const { buildProject, applySourceUpdate } = await import('../server/intel/projects.js');
+  const rec = { sourceId: 's', sourceName: 'S', recordClass: 'government', permitNumber: 'X1', address: '1 A St', description: 'NEW EIGHT-STORY MIXED-USE BUILDING', permitType: 'Commercial', status: 'Issued', applicant: null, raw: {} };
+  const p = buildProject(rec, { id: 'p1' });
+  p.applicant = 'Example Developer LLC'; p.provenance.applicant = 'user';
+  let changes = applySourceUpdate(p, { ...rec });
+  assert.equal(p.applicant, 'Example Developer LLC');
+  assert.equal(p.provenance.applicant, 'user');
+  assert.equal(changes.length, 0);
+  changes = applySourceUpdate(p, { ...rec, applicant: 'Official Applicant Inc' });
+  assert.equal(p.applicant, 'Official Applicant Inc', 'a real value from the agency still wins');
+  assert.equal(p.provenance.applicant, 'government');
+  assert.equal(changes[0].field, 'applicant');
+  assert.equal(p.classification.landscapeRelevance, 'strong', 'spelled-out story counts as new construction');
+});

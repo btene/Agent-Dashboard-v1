@@ -42,7 +42,8 @@ matched to sent emails by Message-ID, so replies update the email, project stage
 reminders automatically.
 
 Deployment instructions for a permanent URL are in `docs/DEPLOYMENT.md`; service costs and
-credentials in `docs/COSTS.md`; ten real leads with sources in `docs/SAMPLE_LEADS.md`.
+credentials in `docs/COSTS.md`; ten real leads with sources in `docs/SAMPLE_LEADS.md`; the
+end-to-end research process on three real projects in `docs/RESEARCH_DEMO.md`.
 
 ## No fabricated projects
 
@@ -54,14 +55,19 @@ credentials in `docs/COSTS.md`; ten real leads with sources in `docs/SAMPLE_LEAD
 
 ## Data sources (as of November 2026)
 
-| Source | Access | Status in this build |
-|---|---|---|
-| City of Los Angeles — Building Permits 2020–present (LADBS, `data.lacity.org` dataset `pi9x-tg5x`) | Socrata open-data API, no credentials needed (optional free app token) | **Connected.** Verified by retrieving real permits; each record links to `https://data.lacity.org/resource/pi9x-tg5x.json?permit_nbr=…`. Publisher refresh: weekly. The dataset omits applicant/owner/contractor names, which show as “Not yet verified”. |
-| City of LA legacy 2013–2019 dataset | Socrata, currently login-restricted by the publisher | Registered; not usable anonymously. |
-| LA County (EPIC-LA), Santa Barbara city & county, San Bernardino city & county, Ventura County, Orange County | Accela-style web portals; no documented public API found | **Import only.** Export search results from the portal and upload the CSV/Excel; the wizard maps columns. Never scraped. |
-| ConstructConnect, Dodge | Paid subscription; API by enterprise agreement only | **Import only** (licensed export). Records labelled third-party and linked back to the provider page. |
+**Live integrations — retrieved automatically and verifiable record by record**
 
-Add a Socrata-backed source by adding a definition in `server/intel/sources.js` (and a row mapper in `server/intel/connectors/` if the columns differ from LA City).
+| Source | Access | Notes |
+|---|---|---|
+| City of Los Angeles — Building Permits 2020–present (LADBS, `data.lacity.org` `pi9x-tg5x`) | Socrata API, no key (optional free app token) | Weekly publisher refresh. No applicant/owner/contractor names. |
+| County of Riverside — PLUS land-use & permit cases (`gis.countyofriverside.us` OpenData/General layer 280) | ArcGIS REST, no key | Unincorporated county. Includes **Landscape Permit (LSP)** cases, which count as a government-documented landscape scope, plus commercial building, grading, plot plan, CUP and tract cases. Parcel (APN), no street address or valuation. |
+| City of Santa Monica — Active Building & Safety Permits (`data.santamonica.gov`) | CKAN datastore API, no key | Daily. Active permits only. |
+| County of Ventura — Weekly Report of Permits Issued (`rmadocs.venturacounty.gov`) | Official weekly PDF, parsed per entry | Unincorporated county, issued permits only, mostly residential. |
+| City of Santa Barbara — Building_Permits (`gisportal.santabarbaraca.gov`) | ArcGIS REST, no key | **Stale:** newest permit 4 Sep 2025. The platform flags this automatically after every run. |
+
+**Manual imports** — LA County (EPIC-LA), Santa Barbara County, San Bernardino city & county, City of Riverside, Ventura County portal, Orange County (portals without an API), plus ConstructConnect and Dodge licensed exports. See *Integrations → Manual imports*.
+
+Each source's newest record date is checked on every run; a source that stops adding records is flagged as stale instead of being presented as current.
 
 ## Quick start
 

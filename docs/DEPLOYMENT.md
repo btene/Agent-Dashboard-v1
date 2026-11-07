@@ -50,8 +50,9 @@ give office staff a login that cannot change settings or open sensitive document
 2. The guided setup walks through company details, documents, email, data sources,
    preferences, outreach tone, reviewing the first projects and approving the first
    campaign. Each step explains what it is for and can be skipped and finished later.
-3. On the **Integrations** page press **Retrieve now** on *City of Los Angeles — Building
-   Permits* to pull real permits; this needs no account.
+3. On the **Integrations** page, under *Live integrations*, press **Retrieve now** on each source
+   (City of Los Angeles, Riverside County, Santa Monica, Ventura County). None needs an account.
+   Render allows outbound internet access, so no network settings are needed.
 
 ## Step 4 — Connect your email (Google Workspace recommended)
 

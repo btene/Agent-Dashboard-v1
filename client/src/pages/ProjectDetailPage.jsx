@@ -38,7 +38,10 @@ function EditFacts({ project, onDone }) {
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   async function save() {
     try {
-      const body = { ...f, bidDeadline: f.bidDeadline ? new Date(f.bidDeadline).toISOString() : null, bidAmount: f.bidAmount === '' ? null : Number(f.bidAmount), contractValue: f.contractValue === '' ? null : Number(f.contractValue) };
+      const changed = ['projectName', 'applicant', 'propertyOwner', 'generalContractor', 'constructionManager', 'propertyManager', 'architect', 'landscapeScopeDocumented', 'bidDeadline'].filter((k) => (f[k] || '') !== ((k === 'bidDeadline' ? project[k]?.slice(0, 10) : project[k]) || ''));
+      const factSources = (f.sourceUrl || f.sourceNote) ? Object.fromEntries(changed.map((k) => [k, { url: f.sourceUrl || null, note: f.sourceNote || '' }])) : undefined;
+      const { sourceUrl, sourceNote, ...rest } = f;
+      const body = { ...rest, factSources, bidDeadline: f.bidDeadline ? new Date(f.bidDeadline).toISOString() : null, bidAmount: f.bidAmount === '' ? null : Number(f.bidAmount), contractValue: f.contractValue === '' ? null : Number(f.contractValue) };
       await api(`/projects/${project.id}`, { method: 'PATCH', body }); onDone();
     } catch (e) { setError(e); }
   }
@@ -53,6 +56,7 @@ function EditFacts({ project, onDone }) {
         <label className="field">Architect / landscape architect<input value={f.architect} onChange={set('architect')} /></label>
         <label className="field">Documented landscape scope<input value={f.landscapeScopeDocumented} onChange={set('landscapeScopeDocumented')} placeholder="e.g. L-series landscape sheets in the plan set; 2.1 acres of planting and irrigation" /></label>
         <div className="form-row"><label className="field">Your bid amount ($)<input type="number" value={f.bidAmount} onChange={set('bidAmount')} /></label><label className="field">Contract value if awarded ($)<input type="number" value={f.contractValue} onChange={set('contractValue')} /></label></div>
+        <div className="form-row"><label className="field">Source link for what you entered<input value={f.sourceUrl || ''} onChange={set('sourceUrl')} placeholder="https://… (agency page, news article, company website)" /></label><label className="field">Source name<input value={f.sourceNote || ''} onChange={set('sourceNote')} placeholder="e.g. Urbanize LA, 3 Mar 2026" /></label></div>
         <label className="field">Note<textarea value={f.note} onChange={set('note')} /></label>
         <ErrorBox error={error} />
       </div>
@@ -161,12 +165,12 @@ export default function ProjectDetailPage() {
               <Fact label="Dwelling units" value={p.dwellingUnits} format={num} provenance={p.provenance.dwellingUnits} />
               <Fact label="Zoning" value={p.zoning} provenance={p.provenance.zoning} />
               <Fact label="Construction type" value={p.constructionType} provenance={p.provenance.constructionType} />
-              <Fact label="Developer / applicant" value={p.applicant} provenance={p.provenance.applicant} />
-              <Fact label="Property owner" value={p.propertyOwner} provenance={p.provenance.propertyOwner} />
-              <Fact label="General contractor" value={p.generalContractor} provenance={p.provenance.generalContractor} />
-              <Fact label="Construction manager" value={p.constructionManager} provenance={p.provenance.constructionManager} />
-              <Fact label="Property manager" value={p.propertyManager} provenance={p.provenance.propertyManager} />
-              <Fact label="Architect" value={p.architect} provenance={p.provenance.architect} />
+              <Fact label="Developer / applicant" value={p.applicant} provenance={p.provenance.applicant} source={p.factSources?.applicant} />
+              <Fact label="Property owner" value={p.propertyOwner} provenance={p.provenance.propertyOwner} source={p.factSources?.propertyOwner} />
+              <Fact label="General contractor" value={p.generalContractor} provenance={p.provenance.generalContractor} source={p.factSources?.generalContractor} />
+              <Fact label="Construction manager" value={p.constructionManager} provenance={p.provenance.constructionManager} source={p.factSources?.constructionManager} />
+              <Fact label="Property manager" value={p.propertyManager} provenance={p.provenance.propertyManager} source={p.factSources?.propertyManager} />
+              <Fact label="Architect" value={p.architect} provenance={p.provenance.architect} source={p.factSources?.architect} />
               <Fact label="Bid deadline" value={p.bidDeadline} format={day} provenance={p.provenance.bidDeadline} />
               <Fact label="Construction schedule" value={p.schedule} provenance={p.provenance.schedule} />
               <Fact label="Landscaping scope (documented)" value={p.landscapeScopeDocumented} provenance={p.provenance.landscapeScopeDocumented} />

@@ -89,7 +89,7 @@ export function classifyProject(rec) {
 
   const landscapeSignals = LANDSCAPE_TERMS.filter(([term]) => text.toLowerCase().includes(term)).map(([, label]) => label);
   // "New" counts only when it describes a building or site element, not new partitions/ceilings inside an existing building.
-  const newConstruction = /^Bldg-New$|^Nonbldg-New$/i.test(rec.permitType || '') || /\bnew\s+(\d+[- ]?(story|stories|storey)|building|construction|structure|warehouse|hotel|motel|center|centre|plaza|campus|facility|school|church|clinic|dealership|restaurant|store|parking (structure|lot|garage))\b/i.test(rec.description || '');
+  const newConstruction = /^Bldg-New$|^Nonbldg-New$/i.test(rec.permitType || '') || /\bnew\s+((\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|fifteen|twenty)[- ]?(story|stories|storey)|building|construction|structure|warehouse|hotel|motel|center|centre|plaza|campus|facility|school|church|clinic|dealership|restaurant|store|parking (structure|lot|garage))\b/i.test(rec.description || '');
   if (newConstruction) landscapeSignals.push('New construction — site landscaping is normally required by local code');
   if (/grading/i.test(rec.permitType || '')) landscapeSignals.push('Grading permit — precedes site/landscape work');
 

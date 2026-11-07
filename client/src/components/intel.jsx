@@ -9,13 +9,14 @@ export function ProvenanceBadge({ kind, compact = false }) {
 }
 
 /** A labelled fact. Null values show "Not yet verified" and the provenance chip says where the value came from. */
-export function Fact({ label, value, provenance, format, children }) {
+export function Fact({ label, value, provenance, format, children, source }) {
   const missing = value === null || value === undefined || value === NOT_YET_VERIFIED || value === '';
   const text = missing ? NOT_YET_VERIFIED : format ? format(value) : String(value);
   return (
     <div className="fact">
       <div className="fact-label">{label} {provenance && <ProvenanceBadge kind={missing ? 'unverified' : provenance} compact />}</div>
       <div className={`fact-value ${missing ? 'missing' : ''}`}>{children ?? text}</div>
+      {!missing && source && <div className="small muted">Source: {source.url ? <a href={source.url} target="_blank" rel="noreferrer">{source.note || new URL(source.url).host} ↗</a> : source.note}</div>}
     </div>
   );
 }

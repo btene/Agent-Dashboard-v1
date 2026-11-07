@@ -65,15 +65,27 @@ export function buildProject(rec, { id, environment = 'live', settings = {}, now
 /** A human-readable name that never invents facts: it is built from the address and permit type only. */
 export function deriveDisplayName(p) {
   const what = p.classification?.projectTypeLabel && p.classification.projectType !== 'other' ? p.classification.projectTypeLabel : (p.permitSubType || p.permitType || 'Project');
-  const where = p.streetAddress || p.address || (p.permitNumber ? `Permit ${p.permitNumber}` : 'Unknown address');
+  // Sources without a street address (e.g. parcel-only county records) use the record's own description.
+  const desc = !p.streetAddress && p.description ? p.description.replace(/\s+/g, ' ').slice(0, 70).replace(/\s\S*$/, '') : null;
+  const where = p.streetAddress || desc || p.address || (p.permitNumber ? `Permit ${p.permitNumber}` : 'Unknown address');
   return `${what} — ${where}`;
 }
 
 /** Compare the stored source fields with a freshly retrieved record. */
+/**
+ * A blank from the source must never erase a fact your team researched (or a
+ * third-party value), because many sources simply do not publish that field.
+ * A real value from the source does replace it, and the change is logged.
+ */
+function keepsExisting(existing, f, incoming) {
+  return (incoming === null || incoming === undefined) && existing[f] != null && ['user', 'third_party'].includes(existing.provenance?.[f]);
+}
+
 export function diffSourceFields(existing, rec) {
   const changes = [];
   for (const f of SOURCE_FIELDS) {
     if (f === 'sourceUpdatedAt' || f === 'sourceRecordUrl' || f === 'sourcePortalUrl' || f === 'agencyLookupUrl') continue;
+    if (keepsExisting(existing, f, rec[f])) continue;
     const before = existing[f] ?? null;
     const after = rec[f] ?? null;
     if (JSON.stringify(before) !== JSON.stringify(after)) changes.push({ field: f, before, after });
@@ -84,8 +96,12 @@ export function diffSourceFields(existing, rec) {
 /** Apply a freshly retrieved record to an existing project (verification or re-ingest). */
 export function applySourceUpdate(existing, rec, { settings = {}, now = new Date().toISOString() } = {}) {
   const changes = diffSourceFields(existing, rec);
-  for (const f of SOURCE_FIELDS) existing[f] = rec[f] ?? null;
-  existing.provenance = { ...existing.provenance, ...provenanceMap(rec) };
+  const fresh = provenanceMap(rec);
+  for (const f of SOURCE_FIELDS) {
+    if (keepsExisting(existing, f, rec[f])) { fresh[f] = existing.provenance[f]; continue; }
+    existing[f] = rec[f] ?? null;
+  }
+  existing.provenance = { ...existing.provenance, ...fresh };
   existing.raw = rec.raw || existing.raw;
   existing.classification = classifyProject(existing);
   if (!existing.userNamed) existing.displayName = rec.projectName || deriveDisplayName(existing);

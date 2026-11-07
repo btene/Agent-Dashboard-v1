@@ -223,6 +223,15 @@ export function createIntelApi({ store, bus, settingsService, sourceService, ema
       if (req.body[f] !== undefined) { patch[f] = req.body[f] || null; patch.provenance = { ...(patch.provenance || p.provenance), [f]: req.body[f] ? 'user' : 'unverified' }; }
     }
     if (req.body.projectName !== undefined) { patch.displayName = req.body.projectName || p.displayName; patch.userNamed = Boolean(req.body.projectName); }
+    // Where a researched fact came from (news article, agency page, company website). Kept per field.
+    if (req.body.factSources && typeof req.body.factSources === 'object') {
+      patch.factSources = { ...(p.factSources || {}) };
+      for (const [field, src] of Object.entries(req.body.factSources)) {
+        if (!src || typeof src !== 'object') continue;
+        const url = typeof src.url === 'string' && /^https?:\/\//.test(src.url) ? src.url : null;
+        patch.factSources[field] = { url, note: String(src.note || '').slice(0, 300), recordedAt: now() };
+      }
+    }
     if (req.body.bidAmount !== undefined) patch.bidAmount = req.body.bidAmount == null ? null : Number(req.body.bidAmount);
     if (req.body.contractValue !== undefined) patch.contractValue = req.body.contractValue == null ? null : Number(req.body.contractValue);
     if (typeof req.body.note === 'string' && req.body.note.trim()) patch.notes = [...(p.notes || []), { at: now(), text: req.body.note.trim() }];

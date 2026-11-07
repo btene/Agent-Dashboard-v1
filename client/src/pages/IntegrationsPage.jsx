@@ -129,7 +129,7 @@ export default function IntegrationsPage() {
       <div className="card card-pad" style={{ marginBottom: 16 }}>
         <h2>Coverage by county</h2>
         <div className="table-wrap" style={{ marginTop: 8 }}><table className="small"><thead><tr><th>County</th><th>Live (automatic)</th><th>Manual import only</th></tr></thead><tbody>
-          {counties.map((c) => <tr key={c}><td>{c}</td><td className="wrap">{live.filter((s) => s.coverage.county === c).map((s) => s.coverage.jurisdiction.split(' (')[0]).join('; ') || <span className="muted">none</span>}</td><td className="wrap">{list.filter((s) => !s.connectorSupported && s.coverage.county === c).map((s) => s.coverage.jurisdiction.split(' (')[0]).join('; ') || <span className="muted">—</span>}</td></tr>)}
+          {counties.map((c) => <tr key={c}><td>{c}</td><td className="wrap">{[...new Set(live.filter((s) => s.coverage.county === c && s.enabled).map((s) => `${s.coverage.jurisdiction.split(' (')[0]}${s.staleWarning ? ' (stale)' : ''}`))].join('; ') || <span className="muted">none</span>}</td><td className="wrap">{list.filter((s) => !s.connectorSupported && s.coverage.county === c).map((s) => s.coverage.jurisdiction.split(' (')[0]).join('; ') || <span className="muted">—</span>}</td></tr>)}
         </tbody></table></div>
       </div>
       <h2 style={{ margin: '8px 0' }}>Live integrations — retrieved automatically</h2>
